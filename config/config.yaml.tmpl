@@ -36,6 +36,20 @@ custom_providers:
   - name: litellm
     api: ${LITELLM_BASE_URL}
     key_env: LITELLM_KEY
+    # 🔴 ปิด fallback ฝั่ง gateway — ให้ Hermes คุม fallback ชั้นเดียว
+    #
+    # LiteLLM มี fallbacks ของตัวเอง (litellm/config.yaml) ถ้าเปิดทิ้งไว้จะเกิด
+    # fallback สองชั้นซ้อนกัน แล้ว gateway จะสลับโมเดลให้ "ก่อน" ที่ Hermes จะ
+    # ทันเห็น error → chain ที่เราเรียงข้าม quota_pool ไว้อย่างระวังไม่เคยได้ทำงาน
+    #
+    # และ gateway ไม่มีทางรู้ข้อจำกัดของเรา — เส้นที่เขาตั้งไว้พา hf/gpt-oss-120b
+    # ไป cb/gpt-oss-120b ซึ่ง "ค้างเงียบ" ที่ 32K ขณะที่ call จริงของเราแตะ 58K
+    # ส่วนเรื่องภาษา การ fallback ไปโมเดลที่ตอบจีนแย่กว่าปล่อยให้ error
+    #
+    # ตอนนี้โมเดลใน chain ของเราไม่มีตัวไหนที่ gateway ตั้ง fallback ไว้ให้
+    # แต่ตั้งไว้ล็อกไว้ก่อน จะได้ไม่พึ่งความบังเอิญว่าวันหนึ่งเขาจะไม่เพิ่ม
+    extra_body:
+      disable_fallbacks: true
     # false = เชื่อรายชื่อข้างล่าง ไม่ต้องไปถาม /models ตอน start
     # (gateway มี 72 โมเดล ส่วนใหญ่ Hermes ใช้ไม่ได้ — ดู docs/MODEL-PROBE.md)
     discover_models: false
@@ -62,7 +76,7 @@ model:
 # --- fallback ---------------------------------------------------------------
 # ต้องข้าม "ผู้ให้บริการ" ไม่ใช่แค่ข้ามชื่อโมเดล — โควตาผูกกับ provider
 # แต่ละ entry ต้องมีทั้ง provider และ model ไม่งั้นถูกข้ามเงียบ ๆ
-# LiteLLM มี fallbacks ของตัวเองอีกชั้นด้วย (litellm/config.yaml) — ชั้นนี้คือกันเหนียว
+# ชั้นนี้เป็น fallback ชั้นเดียวของระบบ — ฝั่ง gateway ปิดไปแล้วด้วย extra_body ข้างบน
 # เรียงให้ "ข้าม provider" ทุกชั้น และเอาตัวที่เร็วกว่าไว้ก่อน
 # ⚠️ อย่าเรียง mi/* ต่อกันเป็นชั้นแรก — โควตาผูกกับ provider ตายพร้อมกัน
 fallback_providers:
