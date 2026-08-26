@@ -1,0 +1,21 @@
+# skills ที่ให้ seed เข้า data/skills/ — หนึ่งบรรทัดต่อหนึ่งตัว รูปแบบ <หมวด>/<ชื่อ>
+# บรรทัดว่างและบรรทัดขึ้นต้นด้วย # ถูกข้าม
+#
+# ที่มา: image มี bundled skills 71 ตัว แต่ index ของทั้ง 71 ตัวถูกยัดเข้า
+# system prompt "ทุก call" (6.7 KB) ทั้งที่โจทย์นี้ไม่ได้ใช้ apple/imessage,
+# comfyui, manim-video, polymarket, touchdesigner ฯลฯ เลยสักตัว
+#
+# แก้ไฟล์นี้แล้วรัน:  ./scripts/trim-skills.sh
+# ดูรายชื่อทั้งหมดที่เลือกได้:  ./scripts/trim-skills.sh --list-available
+
+# ── ถามบอทเรื่องตัวมันเองได้ — ระหว่าง POC ใช้บ่อยที่สุด ────────────────
+autonomous-ai-agents/hermes-agent
+
+# ── ตอบคำถามแบบมีที่มาอ้างอิง ไม่มั่ว ─────────────────────────────────
+research/grounded-citations
+
+# ── คนส่งไฟล์เข้า LINE บ่อย — adapter ดึงไฟล์เข้า media cache ให้แล้ว ──
+# (ทั้งสองตัวเป็นการสกัด "ข้อความ" ไม่ใช่ vision จึงใช้ได้แม้ gateway
+#  ยังไม่มีโมเดล vision — ดู docs/MODEL-PROBE.md)
+productivity/ocr-and-documents
+productivity/pdf

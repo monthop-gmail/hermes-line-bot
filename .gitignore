@@ -1,0 +1,9 @@
+.env
+data/
+results/
+*.bak
+*.log
+
+# project ที่ scaffold จาก botforge template ไว้ทดสอบ — มี .git + .env ของตัวเอง
+# ไม่เอาเข้า repo นี้ (จะกลายเป็น gitlink เสีย ๆ และ .env มีรหัสจริง)
+hermes-probe/

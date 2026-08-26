@@ -1,0 +1,108 @@
+name: ${STACK_NAME:-hermes-line}
+
+# --------------------------------------------------------------------------
+# Hermes Agent → LINE OA (1:1 + group + room)  ×  LiteLLM gateway
+#
+# Hermes มี LINE adapter ในตัวแล้ว (plugins/platforms/line) — POC นี้จึงไม่มี
+# bridge เขียนเอง มีแต่ config  ดูเหตุผลและสิ่งที่ตรวจมาแล้วใน README.md
+#
+# ครั้งแรก:  ./scripts/init.sh  แล้ว  docker compose up -d
+# --------------------------------------------------------------------------
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:${HERMES_VERSION:-v2026.8.3}
+    container_name: ${CONTAINER_PREFIX:-hermes-line}-agent
+    command: gateway run
+    environment:
+      # --- model: มาจาก LiteLLM gateway (network llm-clients) ------------------
+      # key_env ใน data/config.yaml ชี้มาที่ชื่อตัวแปรนี้
+      LITELLM_KEY: ${LITELLM_KEY:?LITELLM_KEY is required — ออก virtual key จาก LiteLLM (อย่าใช้ master key)}
+
+      # --- LINE Messaging API ------------------------------------------------
+      # adapter อ่าน env ก่อน extra ใน config.yaml เสมอ — creds จึงอยู่ที่นี่ที่เดียว
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_PORT: ${LINE_PORT:-8646}
+      LINE_HOST: 0.0.0.0
+      # ต้องเป็น https ปลายทางจริง ใช้ตอนส่งรูป/เสียง/ไฟล์กลับเข้า LINE
+      LINE_PUBLIC_URL: ${LINE_PUBLIC_URL:-}
+      # allowlist 3 ชั้น: U... = คน, C... = group, R... = room (multi-chat)
+      LINE_ALLOWED_USERS: ${LINE_ALLOWED_USERS:-}
+      LINE_ALLOWED_GROUPS: ${LINE_ALLOWED_GROUPS:-}
+      LINE_ALLOWED_ROOMS: ${LINE_ALLOWED_ROOMS:-}
+      # ⚠️ true = ใครก็คุยได้ ปิด allowlist ทั้งหมด — ใช้ตอน POC เท่านั้น
+      LINE_ALLOW_ALL_USERS: ${LINE_ALLOW_ALL_USERS:-false}
+      # ปลายทางของ cron / แจ้งเตือนที่ไม่มีคนถาม (ว่างได้)
+      LINE_HOME_CHANNEL: ${LINE_HOME_CHANNEL:-}
+      # reply token ของ LINE อายุ ~60s — เกินเกณฑ์นี้ Hermes ยิงปุ่ม postback
+      # ให้ผู้ใช้กดรับคำตอบด้วย token ใหม่ (ฟรี) แทนการ Push (เสียโควตา)
+      LINE_SLOW_RESPONSE_THRESHOLD: ${LINE_SLOW_RESPONSE_THRESHOLD:-45}
+
+      # --- runtime ------------------------------------------------------------
+      # image รันด้วย user hermes UID 10000 — ต้อง map ให้ตรง owner ของ ./data
+      PUID: ${PUID:-1001}
+      PGID: ${PGID:-1001}
+      HERMES_DASHBOARD: ${HERMES_DASHBOARD:-0}
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${DASHBOARD_USER:-}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${DASHBOARD_PASS:-}
+      TZ: ${TZ:-Asia/Bangkok}
+    volumes:
+      # /opt/data = ทุกอย่างที่ persist: config.yaml .env sessions memories skills logs
+      - ./data:/opt/data
+    ports:
+      # POC: bind 127.0.0.1 เท่านั้น — ทางเข้าจากเน็ตคือ cloudflared/Caddy
+      # 8646 เปิดไว้เพื่อยิง ./scripts/smoke-webhook.sh ทดสอบจากในเครื่อง
+      - "${BIND_ADDR:-127.0.0.1}:${LINE_PORT:-8646}:${LINE_PORT:-8646}"
+      - "${BIND_ADDR:-127.0.0.1}:${GATEWAY_PORT:-8642}:8642"
+      - "${BIND_ADDR:-127.0.0.1}:${DASHBOARD_PORT:-9119}:9119"
+    # browser tool ต้องใช้ shm — ไม่ใส่แล้ว chrome crash
+    shm_size: 1g
+    networks:
+      # ถ้าอยาก "ยืม" tunnel ที่มีอยู่แล้วโดยไม่แก้ ingress ที่ Cloudflare
+      # ให้เพิ่ม network alias ตามชื่อที่ ingress เดิมชี้ไว้ แล้วตั้ง LINE_PORT
+      # ให้ตรงกับ port นั้น — ดูหัวข้อ "ยืม tunnel ที่มีอยู่แล้ว" ใน README
+      #   default:
+      #     aliases:
+      #       - <ชื่อที่ ingress เดิมชี้>
+      - default
+      # เห็นเฉพาะ llm-litellm — ไม่เห็น llm-db / openwebui ที่อยู่บน llm-net
+      - llm-clients
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${MEM_LIMIT:-4G}
+          cpus: "${CPU_LIMIT:-2.0}"
+    <<: *logging
+
+  # ทางเข้า https สำหรับ LINE webhook — LINE ไม่ยิง http และไม่ยิง IP เปล่า
+  #   docker compose --profile tunnel up -d
+  # ทางเลือกอื่น (ไม่ต้องใช้ profile นี้): ต่อผ่าน reverse proxy เอง — ดู README
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ${CONTAINER_PREFIX:-hermes-line}-tunnel
+    profiles: [tunnel]
+    # ค่าว่างจะพังตอน start ของ cloudflared เอง — ใช้ :- ไม่ใช่ :? เพราะ compose
+    # interpolate ทุก service แม้ profile ไม่ active (up -d เฉย ๆ ก็จะ error)
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - hermes
+    networks:
+      # อยู่แค่ network ของ stack นี้ — tunnel ไม่ต้องเห็น LiteLLM
+      - default
+    restart: unless-stopped
+    <<: *logging
+
+networks:
+  # network ของ stack นี้เอง — hermes คุยกับ cloudflared ที่นี่ ไม่มีใครอื่นเข้ามา
+  default:
+  # สร้างเองครั้งเดียวต่อเครื่อง (docker network create llm-clients) แล้วให้ฝั่ง LiteLLM
+  # ผูก llm-litellm เข้ามาด้วย — บน network นี้มีแค่ litellm กับ client เท่านั้น
+  llm-clients:
+    external: true

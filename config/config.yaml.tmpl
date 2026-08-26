@@ -1,0 +1,196 @@
+# ============================================================================
+# Hermes Agent × LINE OA × LiteLLM — template
+#
+# scripts/init.sh แทน ${VAR} ด้วยค่าจาก .env แล้วเขียนออกเป็น data/config.yaml
+# แก้ที่ไฟล์นี้เท่านั้น อย่าแก้ data/config.yaml ตรง ๆ (gitignore + โดนทับ)
+#
+# ทุก key verify กับ source ใน image v2026.8.3 แล้ว ไม่ได้ลอกจาก doc เว็บ
+#   - hermes_cli/config.py:_normalize_custom_provider_entry → providers.<name>.*
+#   - gateway/config.py:PlatformConfig.from_dict            → platforms.<name>.*
+#   - plugins/platforms/line/adapter.py                     → platforms.line.extra.*
+#   - hermes_cli/config_defaults.py:DEFAULT_CONFIG          → ที่เหลือ
+# ============================================================================
+
+# ต้องมี ไม่งั้น Hermes อ่านเป็น version 0 แล้วขึ้น
+# "This config predates version 12 ... can no longer be auto-migrated"
+# v2026.8.3 → 33  ตอนอัป HERMES_VERSION ให้รัน `docker compose run --rm hermes config migrate`
+_config_version: 33
+
+# --- provider: LiteLLM gateway ----------------------------------------------
+# base URL รับได้ 3 ชื่อ: api / url / base_url (โค้ดไล่หาตามลำดับนี้)
+# key_env = "ชื่อ" env var ไม่ใช่ตัว key — ค่าจริงส่งเข้ามาทาง docker-compose
+#
+# 🔴 ใช้รูปแบบ list (custom_providers) ไม่ใช่ dict (providers:) — ตั้งใจ ไม่ใช่ของเก่า
+#
+# ถ้าประกาศเป็น `providers: {litellm: ...}` Hermes จะนับ provider ตัวนี้ "สองครั้ง"
+#   - จาก key ของ dict            → slug `litellm`
+#   - จากตัวแปลงเป็น custom       → slug `custom:<name>`
+# แล้ว hermes_cli/model_switch.py:_configured_provider_matches() เห็น 2 provider
+# ประกาศโมเดลชื่อเดียวกัน จึงปฏิเสธทุกครั้งที่พิมพ์ชื่อโมเดลเปล่า ๆ:
+#   "'nim/minimax-m3' is declared by multiple configured providers ..."
+# ทำให้ /model ในแชท LINE ต้องพิมพ์ litellm/<ชื่อ> นำหน้าเสมอ ซึ่งไม่มีใครจำ
+#
+# พอย้ายมาเป็น list ตัวซ้ำหายไป (providers dict ว่าง) — ยืนยันด้วยการเรียก
+# switch_model() ตรง ๆ แล้ว ใช้ได้ทั้ง `nim/minimax-m3` และ `litellm/nim/minimax-m3`
+custom_providers:
+  - name: litellm
+    api: ${LITELLM_BASE_URL}
+    key_env: LITELLM_KEY
+    # false = เชื่อรายชื่อข้างล่าง ไม่ต้องไปถาม /models ตอน start
+    # (gateway มี 72 โมเดล ส่วนใหญ่ Hermes ใช้ไม่ได้ — ดู docs/MODEL-PROBE.md)
+    discover_models: false
+    models:
+      # เฉพาะตัวที่ผ่านครบ 3 ข้อ: tool_calls จริง / รับ prompt 14K / ตอบไทยรู้เรื่อง
+      - oc/minimax-m3          # Ollama Cloud  2.3s ← main
+      - nim/minimax-m3         # NVIDIA NIM    5.6s (คนละ provider กับตัวบน)
+      - mi/large               # Mistral       1B token/เดือน
+      - or/ox-alpha            # OpenRouter    context 1M
+      - cb/gpt-oss-120b        # Cerebras      เร็วสุด 0.4s แต่ชน TPM ง่าย
+      - oc/gpt-oss-120b        # Ollama Cloud  เร็วแต่หลุดไปตอบจีน/อังกฤษ (ดู docs)
+      - oc/nemotron-3-ultra    # Ollama Cloud  ใหญ่สุดที่ฟรี แต่ช้า
+
+# --- model ที่ใช้ ------------------------------------------------------------
+model:
+  provider: custom:litellm
+  default: ${HERMES_MODEL}
+
+# --- fallback ---------------------------------------------------------------
+# ต้องข้าม "ผู้ให้บริการ" ไม่ใช่แค่ข้ามชื่อโมเดล — โควตาผูกกับ provider
+# แต่ละ entry ต้องมีทั้ง provider และ model ไม่งั้นถูกข้ามเงียบ ๆ
+# LiteLLM มี fallbacks ของตัวเองอีกชั้นด้วย (litellm/config.yaml) — ชั้นนี้คือกันเหนียว
+fallback_providers:
+  - { provider: "custom:litellm", model: "nim/minimax-m3" }    # NVIDIA NIM — รุ่นเดียวกัน คนละเจ้า
+  - { provider: "custom:litellm", model: "mi/large" }          # Mistral
+  - { provider: "custom:litellm", model: "or/ox-alpha" }       # OpenRouter
+  - { provider: "custom:litellm", model: "cb/gpt-oss-120b" }   # Cerebras
+
+# --- auxiliary --------------------------------------------------------------
+# งานเบื้องหลังต้องอยู่คนละ provider กับ main ไม่งั้นดูดโควตาถังเดียวกัน
+# main = oc/* (Ollama Cloud) → aux ไปลง Cerebras ซึ่งเร็วและไม่ได้ใช้เป็นตัวหลัก
+auxiliary:
+  compression:
+    provider: custom:litellm
+    model: cb/gpt-oss-120b
+  title_generation:
+    provider: custom:litellm
+    model: cb/gpt-oss-120b
+  skills_hub:
+    provider: custom:litellm
+    model: cb/gpt-oss-120b
+  # gateway ยังไม่มีโมเดล vision (or/nemotron-vl-12b ถูกถอด endpoint 2026-08-23)
+  # รูปที่ส่งเข้า LINE จะไม่ถูกอ่าน จนกว่าจะเพิ่มโมเดล vision ใน LiteLLM
+
+# --- context ----------------------------------------------------------------
+# Hermes ยิงพื้น ~13.5K tokens ทุก call (system prompt + skills)
+# บีบให้แน่นกว่า default (0.5) เพราะแชท LINE เป็น multi-turn ยาว
+compression:
+  enabled: true
+  threshold: 0.40
+  target_ratio: 0.25
+  protect_last_n: 20
+
+# --- messaging platform: LINE -----------------------------------------------
+# adapter เป็น bundled plugin (plugins/platforms/line) — enable ตรงนี้พอ
+# ไม่ต้องลงอะไรเพิ่ม
+platforms:
+  line:
+    enabled: true
+    # ⚠️ ห้ามใส่ channel_access_token / channel_secret ตรงนี้
+    #    adapter อ่าน env ก่อน extra เสมอ และไฟล์นี้ไม่ได้ chmod 600
+    #    creds อยู่ใน .env → docker-compose → env ของ process
+    extra:
+      # ต้องตรงกับ port ที่ publish ใน docker-compose.yml
+      port: ${LINE_PORT}
+      host: "0.0.0.0"
+      # path นี้ต้องตรงกับ Webhook URL ที่ตั้งไว้ใน LINE Console
+      #   https://<โดเมนของคุณ>/line/webhook
+      # /line/webhook คือค่า default ของ Hermes adapter เอง
+      # ถ้าไป "ยืม" channel ที่ตั้ง path อื่นไว้ ให้แก้ตรงนี้ให้ตรงกับของเดิม
+      # และแก้ LINE_WEBHOOK_PATH ใน .env ด้วย (scripts/smoke-webhook.sh อ่านจากตรงนั้น)
+      webhook_path: /line/webhook
+    # ปิด ping "♻️ Gateway online" ทุกครั้งที่ restart — ผู้ใช้ปลายทางไม่ได้อยากรู้
+    gateway_restart_notification: false
+    # LINE มี loading indicator ของตัวเอง (chat/loading/start) เปิดไว้
+    typing_indicator: true
+
+# --- พฤติกรรมในกลุ่ม ---------------------------------------------------------
+# false = ทั้งกลุ่มใช้ session เดียวกัน บอทเห็นบทสนทนาต่อเนื่องของทุกคน
+#         → เหมาะกับ "ผู้ช่วยประจำกลุ่ม" ซึ่งคือโจทย์ของ POC นี้
+# true (default ของ Hermes) = แยก session รายคนในกลุ่ม บอทจำข้ามคนไม่ได้
+#         → เหมาะกับกลุ่มที่ต้องการความเป็นส่วนตัวรายคน
+group_sessions_per_user: false
+
+# ⚠️ ไม่มีเงื่อนไข @mention — ในกลุ่มที่ allowlist ผ่าน บอทตอบ "ทุกข้อความ"
+#    (ตรวจแล้ว: adapter.py ไม่มี logic mention เลย ต่างจาก Mattermost ที่มี
+#     MATTERMOST_REQUIRE_MENTION) กลุ่มที่คนคุยกันเยอะจะกินโควตาโมเดลเร็วมาก
+#    คุมด้วย LINE_ALLOWED_GROUPS ให้แคบไว้ก่อน
+
+# --- toolsets ที่เปิดให้ agent ใช้ -------------------------------------------
+# นี่คือ "allowlist" ไม่ใช่ blocklist — ตัวที่ไม่อยู่ในลิสต์ = ปิด
+# ตัวเลข: tool schemas คือก้อนที่ใหญ่ที่สุดของพื้นต่อ call ใหญ่กว่า system prompt
+# ทั้งก้อน ตัด 4 ตัวข้างล่างแล้วได้ 44,758 B → 31,772 B (27 tools → 14)
+#
+# ที่ตัดออกและเหตุผล:
+#   browser    (6,341 B / 10 tools) ต้องมี chrome + shm 1g  แชท LINE ไม่ได้ใช้
+#   delegation (3,859 B) แตก sub-agent — เพิ่ม turn เพิ่มโควตา ไม่คุ้มกับแชท
+#   tts        (1,834 B) ยังไม่ได้ตั้งเสียงออกทาง LINE
+#   vision       (926 B) LiteLLM gateway ไม่มีโมเดล vision (docs/MODEL-PROBE.md)
+#
+# ⚠️ `hermes tools disable --platform line` ใช้ไม่ได้ — validator ของ CLI รู้จัก
+#    เฉพาะ platform ที่ built-in (cli, telegram, discord, ...) ไม่รู้จัก plugin
+#    platform อย่าง line  แต่ "ตัวอ่าน config" รู้จัก ยืนยันด้วย
+#    `hermes prompt-size --platform line` แล้วตัวเลขลดจริง → เขียน key line ตรงนี้เอง
+#
+# ⚠️ `hermes tools disable` เขียนทับ data/config.yaml โดยตรง ถ้าใช้คำสั่งนั้น
+#    แล้วรัน ./scripts/init.sh --force ทีหลัง ค่าจะหายไป — แก้ที่ไฟล์นี้เท่านั้น
+platform_toolsets:
+  # ที่ LINE ใช้จริง
+  line: &enabled_toolsets
+    - clarify           # ถามกลับเมื่อโจทย์กำกวม
+    - code_execution
+    - cronjob           # งานตามเวลา ส่งเข้า LINE_HOME_CHANNEL
+    - file
+    - kanban
+    - memory            # จำข้ามรอบคุย
+    - session_search    # ค้นบทสนทนาเก่า
+    - skills
+    - terminal
+    - todo
+    - web               # ค้นเว็บ (provider brave-free / ddgs ไม่ต้องใช้ key)
+    - bfl
+    - computer_use
+    - image_gen
+  # ให้ CLI เหมือนกัน จะได้ทดสอบด้วย `hermes -z` แล้วเจอสภาพเดียวกับที่ LINE เจอ
+  cli: *enabled_toolsets
+
+# --- ทางลัดสลับโมเดล ---------------------------------------------------------
+# type: alias = เขียนคำสั่งใหม่แล้วส่งต่อให้ handler ของจริง (gateway/run.py:14862)
+# target ไม่ต้องมี / นำหน้า และ argument ที่ผู้ใช้พิมพ์ต่อท้ายจะถูกส่งตามไปด้วย
+# ไม่ใช่ type: exec — exec คือรัน shell ซึ่งไม่ใช่สิ่งที่ต้องการตรงนี้
+#
+# พิมพ์ /model <ชื่อ> ตรง ๆ ก็ยังได้ ทางลัดนี้ไว้ให้จำง่ายตอนคุยใน LINE
+quick_commands:
+  fast:
+    type: alias
+    target: model oc/minimax-m3          # 2.6s — ตัวเร็วสุดที่ตอบไทยนิ่ง
+    description: สลับไปโมเดลเร็ว (oc/minimax-m3)
+  big:
+    type: alias
+    target: model or/ox-alpha            # context 1M แต่ ~19s
+    description: สลับไปโมเดล context ใหญ่ (or/ox-alpha)
+  nim:
+    type: alias
+    target: model nim/minimax-m3         # minimax ตัวเดียวกัน คนละเจ้า
+    description: สลับไป minimax ฝั่ง NVIDIA NIM
+  mistral:
+    type: alias
+    target: model mi/large
+    description: สลับไป Mistral Large
+
+agent:
+  max_turns: ${HERMES_MAX_TURNS}
+
+logging:
+  level: INFO
+
+timezone: ${TZ}
