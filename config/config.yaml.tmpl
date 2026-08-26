@@ -40,14 +40,18 @@ custom_providers:
     # (gateway มี 72 โมเดล ส่วนใหญ่ Hermes ใช้ไม่ได้ — ดู docs/MODEL-PROBE.md)
     discover_models: false
     models:
-      # เฉพาะตัวที่ผ่านครบ 3 ข้อ: tool_calls จริง / รับ prompt 14K / ตอบไทยรู้เรื่อง
-      - oc/minimax-m3          # Ollama Cloud  2.3s ← main
-      - nim/minimax-m3         # NVIDIA NIM    5.6s (คนละ provider กับตัวบน)
-      - mi/large               # Mistral       1B token/เดือน
-      - or/ox-alpha            # OpenRouter    context 1M
-      - cb/gpt-oss-120b        # Cerebras      เร็วสุด 0.4s แต่ชน TPM ง่าย
-      - oc/gpt-oss-120b        # Ollama Cloud  เร็วแต่หลุดไปตอบจีน/อังกฤษ (ดู docs)
-      - oc/nemotron-3-ultra    # Ollama Cloud  ใหญ่สุดที่ฟรี แต่ช้า
+      # เฉพาะตัวที่ผ่านครบ 4 ข้อ: tool_calls จริง / prompt 14K / tool loop turn 2 /
+      # อยู่กับภาษาไทยตอนวิ่งใน agent loop จริง (ข้อหลังยิง API ตรงวัดไม่เห็น)
+      # เวลาคือ "ต่อ turn จริงใน Hermes" ไม่ใช่ latency ของ call เดี่ยว
+      - mi/ministral-14b       # Mistral    18s   ← main · 1B token/เดือน
+      - mi/devstral-medium     # Mistral    51s   ใกล้เพดาน reply token ของ LINE (60s)
+      - or/ox-alpha            # OpenRouter ~19s  context 1M
+      - cb/gpt-oss-120b        # Cerebras   เร็ว แต่ TPM สะสมชนง่ายถ้าเป็น main
+      - oc/minimax-m3          # Ollama Cloud 2.3s — ⚠️ โควตา "รายสัปดาห์" หมดทั้งตระกูล
+      - nim/minimax-m3         # NVIDIA NIM  40 RPM
+      - mi/large               # Mistral    90-180s ช้ามาก เก็บไว้เป็นตาข่ายท้าย ๆ
+      # ตัดออก: oc/gpt-oss-120b (หลุดไปตอบจีน) · cf/llama-4-scout (ตอบอังกฤษ 1/3)
+      #         mi/magistral-medium (146-227s/turn ช้าเกินใช้กับแชท)
 
 # --- model ที่ใช้ ------------------------------------------------------------
 model:
@@ -59,14 +63,15 @@ model:
 # แต่ละ entry ต้องมีทั้ง provider และ model ไม่งั้นถูกข้ามเงียบ ๆ
 # LiteLLM มี fallbacks ของตัวเองอีกชั้นด้วย (litellm/config.yaml) — ชั้นนี้คือกันเหนียว
 fallback_providers:
-  - { provider: "custom:litellm", model: "nim/minimax-m3" }    # NVIDIA NIM — รุ่นเดียวกัน คนละเจ้า
-  - { provider: "custom:litellm", model: "mi/large" }          # Mistral
-  - { provider: "custom:litellm", model: "or/ox-alpha" }       # OpenRouter
-  - { provider: "custom:litellm", model: "cb/gpt-oss-120b" }   # Cerebras
+  - { provider: "custom:litellm", model: "or/ox-alpha" }         # OpenRouter  ~19s
+  - { provider: "custom:litellm", model: "cb/gpt-oss-120b" }     # Cerebras
+  - { provider: "custom:litellm", model: "mi/devstral-medium" }  # Mistral (คนละรุ่นกับ main)
+  - { provider: "custom:litellm", model: "oc/minimax-m3" }       # Ollama Cloud (กลับมาเมื่อโควตารีเซ็ต)
+  - { provider: "custom:litellm", model: "nim/minimax-m3" }      # NVIDIA NIM
 
 # --- auxiliary --------------------------------------------------------------
 # งานเบื้องหลังต้องอยู่คนละ provider กับ main ไม่งั้นดูดโควตาถังเดียวกัน
-# main = oc/* (Ollama Cloud) → aux ไปลง Cerebras ซึ่งเร็วและไม่ได้ใช้เป็นตัวหลัก
+# main = mi/* (Mistral) → aux ไปลง Cerebras ซึ่งเร็วและไม่ได้ใช้เป็นตัวหลัก
 auxiliary:
   compression:
     provider: custom:litellm
@@ -81,7 +86,7 @@ auxiliary:
   # รูปที่ส่งเข้า LINE จะไม่ถูกอ่าน จนกว่าจะเพิ่มโมเดล vision ใน LiteLLM
 
 # --- context ----------------------------------------------------------------
-# Hermes ยิงพื้น ~13.5K tokens ทุก call (system prompt + skills)
+# Hermes ยิงพื้น ~13K tokens ทุก call (system prompt + tool schemas)
 # บีบให้แน่นกว่า default (0.5) เพราะแชท LINE เป็น multi-turn ยาว
 compression:
   enabled: true

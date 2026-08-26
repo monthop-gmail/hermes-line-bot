@@ -9,7 +9,8 @@
 #   ต้องวัดในสภาพจริงเท่านั้นถึงจะเห็น
 #
 #   ./scripts/probe-thai.sh                      # ชุด default 3 รอบต่อโมเดล
-#   ./scripts/probe-thai.sh -n 5 mi/large        # ระบุเอง
+#   ./scripts/probe-thai.sh -n 5 mi/large        # ระบุจำนวนรอบ + โมเดล
+#   ./scripts/probe-thai.sh -t 600 mi/magistral-medium   # ยืด timeout ให้ตัวที่ช้า
 # ============================================================================
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -20,9 +21,13 @@ CONTAINER="hermes-line-agent"
 [ -f .env ] && { set -a; . ./.env; set +a; CONTAINER="${CONTAINER_PREFIX:-hermes-line}-agent"; }
 
 ROUNDS=3
+# ตั้งสูงไว้ก่อน — reasoning model บางตัวใช้ 200s+ ต่อ turn ตัดสายเร็วไปจะอ่านผลผิด
+TIMEOUT="${PROBE_TIMEOUT:-400}"
+LANG_PY="$(dirname "$0")/_lang.py"
 while [[ "${1:-}" == -* ]]; do
   case "$1" in
     -n) ROUNDS="$2"; shift 2 ;;
+    -t) TIMEOUT="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -42,20 +47,31 @@ printf '%-22s %-6s %s\n' MODEL ไทย ผล
 printf '%.0s-' {1..72}; echo
 
 for m in "${MODELS[@]}"; do
-  marks=""; thai_n=0
+  marks=""; thai_n=0; slow_n=0; err_n=0
   for _ in $(seq 1 "$ROUNDS"); do
-    out=$(timeout 240 docker exec "$CONTAINER" /opt/hermes/.venv/bin/hermes \
+    # ⚠️ แยก "เราตัดสายเอง" ออกจาก "โมเดลพัง" — timeout คืน exit code 124
+    #    เคยรายงาน mi/magistral-medium เป็น "พัง 0/3" ทั้งที่มันตอบไทยได้ปกติ
+    #    แค่ใช้ 146-227s ต่อ turn ซึ่งชน timeout เดิมที่ตั้งไว้ 240s
+    #    ถ้าไม่แยกจะอ่านผลผิดว่าโมเดลใช้ไม่ได้
+    out=$(timeout "$TIMEOUT" docker exec "$CONTAINER" /opt/hermes/.venv/bin/hermes \
       -z "$PROMPT" -m "$m" --provider custom:litellm --yolo 2>&1)
-    lang=$(OUT="$out" python3 scripts/_lang.py)
+    rc=$?
+    if [ "$rc" = 124 ]; then
+      marks="$marks${YELLOW}ช้า>${TIMEOUT}s${RESET} "; slow_n=$((slow_n+1)); continue
+    fi
+    lang=$(OUT="$out" python3 "$LANG_PY")
     case "$lang" in
       th) marks="$marks${GREEN}ไทย${RESET} "; thai_n=$((thai_n+1)) ;;
       zh) marks="$marks${RED}จีน${RESET} " ;;
       en) marks="$marks${YELLOW}อังกฤษ${RESET} " ;;
-      *)  marks="$marks${RED}พัง${RESET} " ;;
+      *)  marks="$marks${RED}พัง${RESET} "; err_n=$((err_n+1)) ;;
     esac
   done
   score="$thai_n/$ROUNDS"
-  printf '%-22s %-6s %b\n' "$m" "$score" "$marks"
+  note=""
+  [ "$slow_n" -gt 0 ] && note="ช้าเกิน ${TIMEOUT}s $slow_n ครั้ง "
+  [ "$err_n" -gt 0 ] && note="${note}error $err_n ครั้ง"
+  printf '%-22s %-6s %b%s\n' "$m" "$score" "$marks" "${DIM}${note}${RESET}"
 done
 echo
 echo "${DIM}เกณฑ์: ตัวที่จะใช้เป็น main ต้องได้เต็ม — บอทไทยที่ตอบอังกฤษบ้างใช้งานจริงไม่ได้${RESET}"
