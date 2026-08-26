@@ -46,7 +46,8 @@ custom_providers:
       - mi/ministral-14b       # Mistral    18s   ← main · 1B token/เดือน
       - mi/devstral-medium     # Mistral    51s   ใกล้เพดาน reply token ของ LINE (60s)
       - or/ox-alpha            # OpenRouter ~19s  context 1M
-      - cb/gpt-oss-120b        # Cerebras   เร็ว แต่ TPM สะสมชนง่ายถ้าเป็น main
+      - cb/gpt-oss-120b        # Cerebras   เร็วสุด แต่ verified_max_prompt แค่ 13,655
+                               #            และค้างเงียบที่ ~32K — เลือกเองได้ แต่ไม่อยู่ใน fallback
       - oc/minimax-m3          # Ollama Cloud 2.3s — ⚠️ โควตา "รายสัปดาห์" หมดทั้งตระกูล
       - nim/minimax-m3         # NVIDIA NIM  40 RPM
       - mi/large               # Mistral    90-180s ช้ามาก เก็บไว้เป็นตาข่ายท้าย ๆ
@@ -62,26 +63,43 @@ model:
 # ต้องข้าม "ผู้ให้บริการ" ไม่ใช่แค่ข้ามชื่อโมเดล — โควตาผูกกับ provider
 # แต่ละ entry ต้องมีทั้ง provider และ model ไม่งั้นถูกข้ามเงียบ ๆ
 # LiteLLM มี fallbacks ของตัวเองอีกชั้นด้วย (litellm/config.yaml) — ชั้นนี้คือกันเหนียว
+# เรียงให้ "ข้าม provider" ทุกชั้น และเอาตัวที่เร็วกว่าไว้ก่อน
+# ⚠️ อย่าเรียง mi/* ต่อกันเป็นชั้นแรก — โควตาผูกกับ provider ตายพร้อมกัน
 fallback_providers:
-  - { provider: "custom:litellm", model: "or/ox-alpha" }         # OpenRouter  ~19s
-  - { provider: "custom:litellm", model: "cb/gpt-oss-120b" }     # Cerebras
-  - { provider: "custom:litellm", model: "mi/devstral-medium" }  # Mistral (คนละรุ่นกับ main)
+  - { provider: "custom:litellm", model: "or/ox-alpha" }         # OpenRouter  ~19s · max 31,833
+  - { provider: "custom:litellm", model: "mi/devstral-medium" }  # Mistral     51s  · max 127,972
   - { provider: "custom:litellm", model: "oc/minimax-m3" }       # Ollama Cloud (กลับมาเมื่อโควตารีเซ็ต)
   - { provider: "custom:litellm", model: "nim/minimax-m3" }      # NVIDIA NIM
+  # ⚠️ ถอด cb/gpt-oss-120b ออกจาก chain — verified_max_prompt แค่ 13,655 ซึ่งต่ำกว่า
+  #    context ที่ hermes ใช้จริง (สูงสุด 43,330) และมันพังแบบ "ค้างเงียบ" ไม่คืน error
+  #    fallback ที่ล้มแบบเงียบแย่กว่าไม่มี fallback เพราะกินเวลา timeout ไปเปล่า ๆ
 
 # --- auxiliary --------------------------------------------------------------
-# งานเบื้องหลังต้องอยู่คนละ provider กับ main ไม่งั้นดูดโควตาถังเดียวกัน
-# main = mi/* (Mistral) → aux ไปลง Cerebras ซึ่งเร็วและไม่ได้ใช้เป็นตัวหลัก
+# 🔴 ข้อจำกัดที่ผูกจริงของ aux คือ "ต้องไม่ค้างตอน prompt ใหญ่" ไม่ใช่ "คนละถังกับ main"
+#
+# เดิมตั้งกติกาว่า aux ต้องอยู่คนละ provider กับ main (กันดูดโควตาถังเดียวกัน)
+# ซึ่งถูกตอน main เป็น OKMD ที่มีแค่ ~40K/วัน — แต่ตอนนี้ main อยู่ Mistral
+# 1B token/เดือน เรื่องแย่งโควตาไม่ใช่ประเด็นแล้ว
+#
+# ที่เป็นประเด็นแทนคือ compression ทำงาน "ตอน context ใหญ่" ซึ่งเป็นจังหวะที่
+# โมเดลเพดานเตี้ยจะพัง — และบางเจ้าพังแบบ "เงียบ" ไม่คืน error ด้วย
+#   cb/gpt-oss-120b: verified_max_prompt = 13,655 · timeout ที่ ~32,000 (ไม่ตอบอะไรเลย)
+#   hermes ของเรา  : call แรก ~13,357 · call ถัดไปสูงสุด 43,330 (วัดจาก log จริง)
+# → Cerebras จะค้างพอดีตอนที่ compression ถูกเรียก จึงย้ายออก
+#
+# mi/ministral-3b: 373ms · verified_max_prompt 127,972 · เล็กและถูกที่สุดในตระกูล
+# (ตัวเลข verified_max_prompt มาจาก /model/info ของ llm-gateway — ค่าที่ยิงผ่านจริง
+#  ไม่ใช่ค่าที่ provider โฆษณา)
 auxiliary:
   compression:
     provider: custom:litellm
-    model: cb/gpt-oss-120b
+    model: mi/ministral-3b
   title_generation:
     provider: custom:litellm
-    model: cb/gpt-oss-120b
+    model: mi/ministral-3b
   skills_hub:
     provider: custom:litellm
-    model: cb/gpt-oss-120b
+    model: mi/ministral-3b
   # gateway ยังไม่มีโมเดล vision (or/nemotron-vl-12b ถูกถอด endpoint 2026-08-23)
   # รูปที่ส่งเข้า LINE จะไม่ถูกอ่าน จนกว่าจะเพิ่มโมเดล vision ใน LiteLLM
 
@@ -107,12 +125,26 @@ platforms:
       # ต้องตรงกับ port ที่ publish ใน docker-compose.yml
       port: ${LINE_PORT}
       host: "0.0.0.0"
-      # path นี้ต้องตรงกับ Webhook URL ที่ตั้งไว้ใน LINE Console
-      #   https://<โดเมนของคุณ>/line/webhook
-      # /line/webhook คือค่า default ของ Hermes adapter เอง
-      # ถ้าไป "ยืม" channel ที่ตั้ง path อื่นไว้ ให้แก้ตรงนี้ให้ตรงกับของเดิม
-      # และแก้ LINE_WEBHOOK_PATH ใน .env ด้วย (scripts/smoke-webhook.sh อ่านจากตรงนั้น)
-      webhook_path: /line/webhook
+      # path นี้ต้องตรงกับ Webhook URL ที่ตั้งใน LINE Console
+      #   https://<โดเมนของ project><path>
+      # อ่านจาก LINE_WEBHOOK_PATH ใน .env ที่เดียว — scripts/smoke-webhook.sh
+      # ก็อ่านจากตรงนั้น จะได้ไม่หลุดคนละค่ากันสองที่
+      # ค่า default ของ Hermes adapter เองคือ /line/webhook
+      webhook_path: ${LINE_WEBHOOK_PATH}
+      # 🔴 อนุญาต "ทุกคนในกลุ่มนี้" — ไม่ใช่แค่ id ที่อยู่ใน LINE_ALLOWED_USERS
+      #
+      # ทำไมต้องมีทั้งที่ LINE_ALLOWED_GROUPS ก็ตั้งไว้แล้ว: มันคนละด่านกัน
+      #   ด่าน 1  adapter (_allowed_for_source)  — เช็ค groupId อย่างเดียว ผ่าน
+      #   ด่าน 2  gateway (_is_user_authorized)  — เช็ค "รายคน" จาก LINE_ALLOWED_USERS
+      #           ผ่าน platform_registry (adapter.py:1741) → เพื่อนร่วมทีมโดนตีตกที่ด่านนี้
+      #           ขึ้น log ว่า "Unauthorized user: U… on line" ทั้งที่ webhook ตอบ 200
+      #
+      # group_allowed_chats ถูกเช็คใน authz_mixin.py:478 ก่อนถึง user allowlist
+      # และเป็นทางที่ platform-agnostic (ไม่ต้องรอ Hermes ใส่ LINE ในตาราง hardcode)
+      # ใส่ "*" = ทุกกลุ่มที่ผ่านด่าน 1 (ยังคุมด้วย LINE_ALLOWED_GROUPS อยู่)
+      # ต้องมี quote — ค่า * ล้วน ๆ YAML อ่านเป็น alias แล้ว parse พัง
+      # (hermes config check ไม่จับให้ ต้อง parse เองถึงจะเห็น)
+      group_allowed_chats: "${LINE_GROUP_ALLOWED_CHATS}"
     # ปิด ping "♻️ Gateway online" ทุกครั้งที่ restart — ผู้ใช้ปลายทางไม่ได้อยากรู้
     gateway_restart_notification: false
     # LINE มี loading indicator ของตัวเอง (chat/loading/start) เปิดไว้
@@ -174,11 +206,24 @@ platform_toolsets:
 # ไม่ใช่ type: exec — exec คือรัน shell ซึ่งไม่ใช่สิ่งที่ต้องการตรงนี้
 #
 # พิมพ์ /model <ชื่อ> ตรง ๆ ก็ยังได้ ทางลัดนี้ไว้ให้จำง่ายตอนคุยใน LINE
+# ⚠️ ชื่อ quick command ต้องไม่ชนกับคำสั่ง built-in ของ Hermes
+#    ถ้าชน alias จะ "ไม่ทำงานเลย" แบบเงียบ ๆ เพราะ gateway/run.py:14855 เช็ค
+#    `_cmd_def is None` ก่อน — เจอ built-in แล้วจะไม่มองหา alias เลย
+#    เคยตั้ง `fast` แล้วชนกับ /fast (สลับ Priority Processing) จึงเปลี่ยนเป็น turbo
+#
+#    เช็คก่อนตั้งชื่อใหม่:
+#      docker exec <container> /opt/hermes/.venv/bin/python -c \
+#        "import sys;sys.path.insert(0,'/opt/hermes');\
+#         from hermes_cli.commands import is_gateway_known_command as k;print(k('ชื่อ'))"
 quick_commands:
-  fast:
+  turbo:
     type: alias
     target: model oc/minimax-m3          # 2.6s — ตัวเร็วสุดที่ตอบไทยนิ่ง
     description: สลับไปโมเดลเร็ว (oc/minimax-m3)
+  minimax:
+    type: alias
+    target: model oc/minimax-m3          # ชื่อที่อ่านแล้วรู้เลยว่าโมเดลอะไร
+    description: สลับไป minimax (Ollama Cloud)
   big:
     type: alias
     target: model or/ox-alpha            # context 1M แต่ ~19s
