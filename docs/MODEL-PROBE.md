@@ -5,18 +5,38 @@
 
 ## ทำไมต้องคัด
 
-Hermes ไม่ใช่ chatbot ธรรมดา — มันวิ่งด้วย tool loop ล้วน ๆ และยิง **พื้นคงที่ทุก call**:
+Hermes ไม่ใช่ chatbot ธรรมดา — มันวิ่งด้วย tool loop ล้วน ๆ และยิง **พื้นคงที่ทุก call**
+ก่อนจะนับเนื้อบทสนทนาเสียอีก
+
+### พื้นต่อ call (วัดด้วย `hermes prompt-size --platform line`)
+
+| | ก่อนตัด | หลังตัด |
+|---|---|---|
+| System prompt (identity + skills index) | 22,442 B | **15,265 B** |
+| Tool schemas | 44,758 B (27 tools) | **31,772 B** (14 tools) |
+| **รวม** | ~67 KB ≈ 17-20K tokens | **~46 KB ≈ 13K tokens** |
+
+"หลังตัด" = ตัด bundled skills 71 → 4 และ toolsets 27 → 14 tools
+(ดูวิธีใน README — `scripts/trim-skills.sh` + `platform_toolsets`)
+
+### ของจริงตอนใช้งาน — ต่างจากพื้นเยอะ
+
+วัดจาก log ของบอทที่รันจริง (78 API call):
 
 ```
-System prompt  22,442 B  (21.9 KB) ← identity + skills index (71 skills)
-Tool schemas   44,758 B  (43.7 KB) ← 27 tools / 12 toolsets
-──────────────────────────────────
-รวม            ~67 KB   ≈ 17-20K tokens  ต่อ "หนึ่ง call"
+call แรกของ session   12,756 – 13,600 tokens   (กลาง 13,357)  ← นี่คือ "พื้น"
+call ถัดไป            12,883 – 43,330 tokens   (กลาง 30,047)  ← บวกบทสนทนาสะสม
 ```
 
-(วัดด้วย `docker exec hermes-line-agent hermes prompt-size`)
+**ตัวเลขที่ควรใช้วางแผนโควตาคือตัวหลัง ไม่ใช่พื้น** — หนึ่ง turn ที่เรียก tool
+ใช้อย่างน้อย 2 calls จึงตกราว **26K tokens ต่อ turn เป็นอย่างต่ำ** และ
+**40–60K ต่อ turn ในบทสนทนาที่ยาวขึ้น**
 
-หนึ่ง turn ที่ใช้ tool = อย่างน้อย 2 calls → **~35-40K tokens ต่อ turn**
+> ⚠️ **แก้จากฉบับก่อน (2026-08-26)** — เดิมเขียนว่า "~35-40K tokens ต่อ turn"
+> ตัวเลขนั้นเป็น**พื้นก่อนตัด skills/toolsets** ไม่ใช่ของปัจจุบัน
+> พื้นตอนนี้ต่ำกว่านั้น (~26K/turn) แต่ของจริงตอน context ยาวขึ้นไปได้ถึง 40-60K
+> ถ้าเอาไปกรองโมเดลตามโควตา ให้ใช้ช่วง 26–60K ไม่ใช่ตัวเลขเดียว
+
 โมเดลจึงต้องผ่าน 3 ข้อ ไม่ใช่แค่ "ตอบได้":
 
 1. คืน `tool_calls` เป็น field จริง ไม่ใช่ `<tool_call>` ปนใน `content`
@@ -99,7 +119,7 @@ auxiliary: cb/gpt-oss-120b              # compression / title / skills_hub
 และไม่มีอาการหลุดภาษาแบบ `oc/gpt-oss-120b`
 
 **ไม่ใช้ `cb/gpt-oss-120b` เป็น main** ทั้งที่เร็วกว่า (0.4s) เพราะ Cerebras จำกัดที่
-**TPM สะสม ไม่ใช่ context** — Hermes ยิง ~16K tokens ทุก call ยิงไม่กี่ทีก็ชน
+**TPM สะสม ไม่ใช่ context** — Hermes ยิง ~13K tokens ทุก call เป็นอย่างต่ำ ยิงไม่กี่ทีก็ชน
 `token_quota_exceeded` Ollama Cloud ไม่ประกาศเพดานและยิงรัวไม่โดน rate limit
 
 **ไม่ใช้ `or/ox-alpha` เป็น main** ทั้งที่ context 1M เพราะช้าสุด (~19s ต่อ turn)

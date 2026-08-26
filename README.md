@@ -304,8 +304,13 @@ main **`oc/minimax-m3`** · fallback `nim/minimax-m3` → `mi/large` → `or/ox-
 | `or/ox-alpha` | ~19s | context 1M แต่ช้าสุด |
 | `nim/minimax-m3` | 5.7–20.3s | minimax ตัวเดียวกัน คนละเจ้า แกว่งมาก |
 
-**Hermes กิน ~16K tokens ต่อ 1 call** (system prompt 16.4 KB + tool schemas 31.0 KB
-เมื่อวัดที่ `--platform line`) — วัดจาก log จริงได้ `in=13030` ถึง `in=15631`
+**Hermes กิน ~13K tokens ต่อ 1 call เป็นอย่างต่ำ** (system prompt 15.3 KB +
+tool schemas 31.0 KB เมื่อวัดที่ `--platform line`) — ยืนยันจาก log จริง:
+call แรกของ session อยู่ที่ 12,756–13,600 tokens
+
+แต่ **call ถัดไปในบทสนทนาเดียวกันขึ้นไปถึง 43,330** เพราะบวกบทสนทนาสะสม
+ถ้าจะวางแผนโควตาให้ใช้ช่วง **26–60K ต่อ turn** ไม่ใช่ตัวเลขเดียว
+(ดูตัวเลขเต็มใน [`docs/MODEL-PROBE.md`](docs/MODEL-PROBE.md))
 
 ```bash
 docker exec hermes-line-agent hermes prompt-size --platform line   # พื้นต่อ call
@@ -390,7 +395,7 @@ docker exec hermes-line-agent hermes prompt-size --platform line   # พื้�
 system prompt      25,974 B    16,386 B     ← ตัด skills
 tool schemas       44,758 B    31,772 B     ← ตัด toolsets
 ──────────────────────────────────────
-พื้นต่อ call       ~70.7 KB    ~48.2 KB     ≈ 16K → 12K tokens
+พื้นต่อ call       ~70.7 KB    ~47.0 KB     ≈ 17-20K → ~13K tokens
 ```
 
 **tool schemas ใหญ่กว่า system prompt ทั้งก้อนสองเท่า** — จะลดพื้นจริงจังต้องมาทางนี้
@@ -423,7 +428,7 @@ tool schemas       44,758 B    31,772 B     ← ตัด toolsets
 > ⚠️ `hermes tools disable` **เขียนทับ `data/config.yaml` โดยตรง** ถ้าใช้คำสั่งนั้น
 > แล้วรัน `./scripts/init.sh --force` ทีหลัง ค่าจะหาย — แก้ที่ template เท่านั้น
 
-รวมทั้งสองอย่าง (skills + toolsets) พื้นต่อ call ลดจาก ~70.7 KB เหลือ **~48.2 KB**
+รวมทั้งสองอย่าง (skills + toolsets) พื้นต่อ call ลดจาก ~70.7 KB เหลือ **~47.0 KB**
 
 ---
 
