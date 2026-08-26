@@ -1,0 +1,64 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # เคสจริงที่เคยเกิด (2026-08-25): เขียน
+      #     group_allowed_chats: *
+      # โดยตั้งใจให้แปลว่า "ทุกกลุ่ม" แต่ bare * ใน YAML คือ alias reference
+      # ไฟล์จึง parse ไม่ผ่านทั้งไฟล์ — และ `hermes config check` ตอบว่า
+      # "Config version: 33 ✓ ไม่มีคำเตือน" เครื่องมือของ Hermes เองไม่จับให้
+      # บอทขึ้นมาโดยไม่มี config ที่เราเขียน กว่าจะรู้ตัวคือตอนทดสอบใน LINE
+      - name: config.yaml.tmpl ต้อง parse ได้และค่าสำคัญเป็นชนิดที่ถูก
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+
+          with open("config/config.yaml.tmpl") as f:
+              cfg = yaml.safe_load(f)          # พังตรงนี้ = ไฟล์ไม่ใช่ YAML
+
+          fail = []
+
+          # ต้องเป็น str — ถ้าเผลอเขียน * หรือ *anchor จะได้ list/dict/None
+          g = cfg["platforms"]["line"]["extra"]["group_allowed_chats"]
+          if not isinstance(g, str):
+              fail.append(f"group_allowed_chats ต้องเป็น string (ได้ {type(g).__name__}) "
+                          "— ถ้าอยากได้ทุกกลุ่มต้องใส่ quote: \"*\"")
+
+          # สอง key นี้ผูกกันด้วย YAML anchor (&enabled_toolsets / *enabled_toolsets)
+          # ถ้า anchor หลุด สองฝั่งจะต่างกันเงียบ ๆ แล้ว LINE กับ CLI จะได้ tool คนละชุด
+          ts = cfg["platform_toolsets"]
+          if ts["line"] != ts["cli"]:
+              fail.append("platform_toolsets.line != platform_toolsets.cli — anchor หลุด")
+
+          # ปิด fallback ฝั่ง gateway ไว้ตั้งใจ ให้ Hermes คุม fallback ชั้นเดียว
+          # ดู INTEGRATION.md ของ llm-gateway หัวข้อ "fallback: ใครควรเป็นเจ้าของ"
+          for p in cfg.get("custom_providers", []):
+              if (p.get("extra_body") or {}).get("disable_fallbacks") is not True:
+                  fail.append(f"custom_providers[{p.get('name')}] ต้องมี "
+                              "extra_body.disable_fallbacks: true")
+
+          if fail:
+              print("\n".join("  ✗ " + x for x in fail))
+              sys.exit(1)
+          print(f"  ✓ parse ผ่าน · {len(cfg)} top-level keys · ตรวจครบ 3 ข้อ")
+          PY
+
+      - name: bash syntax
+        run: |
+          for f in scripts/*.sh; do bash -n "$f" && echo "  ✓ $f"; done
+
+      - name: shellcheck
+        run: |
+          command -v shellcheck >/dev/null || sudo apt-get install -qq -y shellcheck
+          shellcheck -S warning scripts/*.sh && echo "  ✓ ไม่มี warning"
+
+      - name: python syntax
+        run: python3 -m py_compile scripts/_lang.py && echo "  ✓ scripts/_lang.py"

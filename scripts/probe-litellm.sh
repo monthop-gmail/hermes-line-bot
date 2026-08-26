@@ -10,7 +10,7 @@
 #   ./scripts/probe-litellm.sh                 # ยิงชุด default
 #   ./scripts/probe-litellm.sh or/ox-alpha ... # ระบุเอง
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 BASE="${LITELLM_BASE_URL:-http://127.0.0.1:4000/v1}"
 KEY="${LITELLM_KEY:-}"
