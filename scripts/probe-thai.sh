@@ -47,17 +47,34 @@ printf '%-22s %-6s %s\n' MODEL ไทย ผล
 printf '%.0s-' {1..72}; echo
 
 for m in "${MODELS[@]}"; do
-  marks=""; thai_n=0; slow_n=0; err_n=0
+  marks=""; thai_n=0; slow_n=0; err_n=0; wrong_n=0; wrong_detail=""
   for _ in $(seq 1 "$ROUNDS"); do
     # ⚠️ แยก "เราตัดสายเอง" ออกจาก "โมเดลพัง" — timeout คืน exit code 124
     #    เคยรายงาน mi/magistral-medium เป็น "พัง 0/3" ทั้งที่มันตอบไทยได้ปกติ
     #    แค่ใช้ 146-227s ต่อ turn ซึ่งชน timeout เดิมที่ตั้งไว้ 240s
     #    ถ้าไม่แยกจะอ่านผลผิดว่าโมเดลใช้ไม่ได้
+    # 🔴 Hermes มี fallback_providers ของตัวเอง — ถ้าโมเดลที่ขอตาย มันไล่ไปตัวถัดไป
+    #    "เงียบ ๆ" แล้วเราจะวัดภาษาของตัวสำรองใส่ชื่อตัวที่ขอ
+    #    (บทเรียนจาก llm-gateway: latency_ms_14k รอบแรกผิด 11 ตัวเพราะเรื่องนี้)
+    #
+    #    ยิงผ่าน CLI จึงใส่ disable_fallbacks ใน request เองไม่ได้ และ CLI ก็ไม่เขียน
+    #    "API call #" ลง agent.log ของ gateway ด้วย — ใช้ --usage-file แทน
+    #    ซึ่งบันทึก "model" ที่ตอบจริงไว้ ตรวจได้แน่นอน
+    UF=/tmp/probe-thai-usage.json
+    docker exec "$CONTAINER" rm -f "$UF" 2>/dev/null
     out=$(timeout "$TIMEOUT" docker exec "$CONTAINER" /opt/hermes/.venv/bin/hermes \
-      -z "$PROMPT" -m "$m" --provider custom:litellm --yolo 2>&1)
+      -z "$PROMPT" -m "$m" --provider custom:litellm --usage-file "$UF" --yolo 2>&1)
     rc=$?
     if [ "$rc" = 124 ]; then
       marks="$marks${YELLOW}ช้า>${TIMEOUT}s${RESET} "; slow_n=$((slow_n+1)); continue
+    fi
+    answered=$(docker exec "$CONTAINER" sh -c "cat $UF 2>/dev/null" \
+      | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("model",""))
+except Exception: print("")' 2>/dev/null)
+    if [ -n "$answered" ] && [ "$answered" != "$m" ]; then
+      marks="$marks${RED}วัดผิด${RESET} "; wrong_n=$((wrong_n+1)); wrong_detail="$answered"
+      continue
     fi
     lang=$(OUT="$out" python3 "$LANG_PY")
     case "$lang" in
@@ -70,7 +87,8 @@ for m in "${MODELS[@]}"; do
   score="$thai_n/$ROUNDS"
   note=""
   [ "$slow_n" -gt 0 ] && note="ช้าเกิน ${TIMEOUT}s $slow_n ครั้ง "
-  [ "$err_n" -gt 0 ] && note="${note}error $err_n ครั้ง"
+  [ "$err_n" -gt 0 ] && note="${note}error $err_n ครั้ง "
+  [ "$wrong_n" -gt 0 ] && note="${note}🔴 fallback ไปตอบแทน $wrong_n ครั้ง ($wrong_detail)"
   printf '%-22s %-6s %b%s\n' "$m" "$score" "$marks" "${DIM}${note}${RESET}"
 done
 echo

@@ -50,6 +50,10 @@ import json, os, time, urllib.request, urllib.error
 base, key, model = os.environ["BASE"], os.environ["KEY"], os.environ["MODEL"]
 
 def call(payload, timeout=180):
+    # 🔴 ปิด fallback ของ LiteLLM เสมอ — ไม่งั้นพอโมเดลที่ขอตาย มันสลับไปตัวสำรอง
+    # เงียบ ๆ แล้วเราบันทึกผลของ "ตัวสำรอง" ใส่ชื่อโมเดลที่ขอ
+    # (บทเรียนจาก llm-gateway: ค่า latency_ms_14k ที่ส่งไปรอบแรกผิดไป 11 ตัวเพราะข้อนี้)
+    payload = {**payload, "disable_fallbacks": True}
     req = urllib.request.Request(
         base.rstrip("/") + "/chat/completions",
         data=json.dumps(payload).encode(),
@@ -90,12 +94,16 @@ st, body = call({
 })
 elapsed = time.time() - t0
 
-tools_ok, note = "no", ""
+tools_ok, note, mismatch = "no", "", ""
 if st != 200:
     note = f"HTTP {st}: {str(body.get('_raw', body))[:60]}"
 elif not body.get("choices"):
     note = "ไม่มี choices: " + json.dumps(body)[:60]
 else:
+    # ตรวจซ้ำว่าใครตอบจริง — disable_fallbacks ควรกันได้แล้ว แต่ยืนยันไว้ดีกว่าเดา
+    answered = body.get("model") or ""
+    mismatch = (f"⚠️ ตอบโดย {answered} ไม่ใช่ {model} · "
+                if answered and model.split("/")[-1] not in answered else "")
     msg = body["choices"][0].get("message") or {}
     content = msg.get("content") or ""
     if msg.get("tool_calls"):
@@ -122,6 +130,6 @@ big_ok = "YES" if bst == 200 and bbody.get("choices") else "no"
 if big_ok == "no" and not note:
     note = f"ctx {bst}: {str(bbody.get('_raw', bbody))[:50]}"
 
-print("%-24s %-6s %-7s %-9s %s" % (model, tools_ok, big_ok, f"{elapsed:.1f}s", note))
+print("%-24s %-6s %-7s %-9s %s" % (model, tools_ok, big_ok, f"{elapsed:.1f}s", mismatch + note))
 PY
 done
