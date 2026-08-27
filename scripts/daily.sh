@@ -27,9 +27,19 @@ REPOS=(monthop-gmail/hermes-line-bot monthop-gmail/llm-gateway monthop-gmail/bot
 
 # โมเดลที่ "ค้างเพราะโควตา" — ต้องวัดซ้ำเมื่อคืน แล้วส่งผลกลับเป็น PR
 # เพิ่ม/ลบตรงนี้เมื่อสถานการณ์เปลี่ยน จะได้ไม่ต้องจำเอง
-WAITING=(
-  "cf/llama-4-scout|วัดภาษาซ้ำ — เคยรายงานว่าตอบอังกฤษ 1/3 แต่วัดตอนโควตาอาจหมดแล้ว"
-  "oc/gpt-oss-120b|วัดภาษาซ้ำ — เคยเจอตอบจีน 2/3 ใน agent loop"
+#
+# ⚠️ ว่างอยู่โดยตั้งใจ (2026-08-27) — การวัดภาษาเป็นของ gateway แล้วตั้งแต่
+#    llm-gateway#13 merge เราไม่ต้องยิงเองอีก แค่อ่าน language_th_* จาก /model/info
+#    ใส่ตรงนี้เฉพาะของที่ "ต้องวัดในบริบทของเราเท่านั้น" ซึ่งตอนนี้ไม่มี
+#
+#    เดิมมี cf/llama-4-scout กับ oc/gpt-oss-120b อยู่ — ถอนออกเพราะเป็นงานของ gateway
+#    (ผลเก่าของ cf ถอนไปแล้วที่ llm-gateway#16 เพราะวัดด้วยโจทย์ที่จับ drift ไม่ได้)
+WAITING=()
+
+# repo ที่ "จอดไว้ตั้งใจ" — ไม่ใช่ของค้าง อย่าไปเร่ง อย่าไปไล่ทำ
+# เขียนเหตุผลกับวันที่ไว้ด้วย จะได้รู้ว่าเมื่อไหร่ควรกลับมาทบทวน
+PARKED=(
+  "botforge|จอดไว้จนกว่าจะเดินเข้า agent platform จริง (ตัดสิน 2026-08-27) — PR #29 เปิดค้างได้ ไม่ต้อง review"
 )
 
 DO_GITHUB=1; ONLY_QUOTA=0
@@ -84,12 +94,15 @@ fi
 
 # --- 4. ของที่รอโควตาคืน -----------------------------------------------------
 head2 "4. ของที่รอโควตาคืน"
+if [ ${#WAITING[@]} -eq 0 ]; then
+  echo "  ${DIM}ไม่มี — การวัดภาษาเป็นของ gateway แล้ว อ่าน language_th_* จาก /model/info${RESET}"
+fi
 set -a; [ -f .env ] && . ./.env; set +a
 if [ -z "${LITELLM_KEY:-}" ]; then
   echo "  ${DIM}ข้าม — ไม่มี LITELLM_KEY ใน .env${RESET}"
 else
   URL="${LITELLM_BASE_URL%/}/chat/completions"
-  for row in "${WAITING[@]}"; do
+  for row in ${WAITING[@]+"${WAITING[@]}"}; do
     m="${row%%|*}"; why="${row#*|}"
     body=$(docker run --rm --network llm-clients curlimages/curl:latest \
       -sS --max-time 60 -w '\n__H__%{http_code}' -X POST "$URL" \
@@ -112,7 +125,17 @@ if [ "$DO_GITHUB" = 1 ] && [ "$ONLY_QUOTA" = 0 ]; then
     echo "  ${DIM}ไม่มี gh${RESET}"
   else
     for r in "${REPOS[@]}"; do
-      echo "  ${BOLD}${r##*/}${RESET}"
+      short="${r##*/}"
+      note=""
+      for row in "${PARKED[@]}"; do
+        [ "${row%%|*}" = "$short" ] && note="${row#*|}"
+      done
+      if [ -n "$note" ]; then
+        echo "  ${BOLD}${short}${RESET}  ${DIM}[จอดไว้]${RESET}"
+        echo "    ${DIM}${note}${RESET}"
+        continue
+      fi
+      echo "  ${BOLD}${short}${RESET}"
       gh issue list --repo "$r" --state open --limit 10 \
         --json number,title,updatedAt \
         --template '{{range .}}    #{{.number}}  {{.title}}{{"\n"}}{{end}}' 2>/dev/null \
