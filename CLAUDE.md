@@ -132,6 +132,6 @@ dict ทำให้ provider ถูกนับสองครั้ง แล�
 
 ## เอกสาร
 
-- `README.md` — POC log เต็ม (⚠️ หัวข้อ "โมเดล" ยังค้างของเก่า main เป็น `oc/minimax-m3`)
+- `README.md` — POC log เต็ม
 - `docs/MODEL-PROBE.md` — ตารางผลคัดโมเดล
 - `config/SOUL.md` — persona สำหรับ LINE (ห้าม markdown, ตอบสั้น, ภาษาเดียวกับผู้ใช้)

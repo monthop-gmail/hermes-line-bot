@@ -290,7 +290,19 @@ group_sessions_per_user: false      # ตั้งไว้ใน config/config.
 
 ## โมเดล
 
-main **`oc/minimax-m3`** · fallback `nim/minimax-m3` → `mi/large` → `or/ox-alpha` → `cb/gpt-oss-120b`
+main **`mi/ministral-14b`** · fallback `zen/hy3` → `mi/devstral-medium` → `oc/minimax-m3` → `nim/minimax-m3`
+
+ทุกชั้นข้าม `quota_pool` — Mistral / OpenCode Zen / Ollama Cloud / NVIDIA NIM
+เพราะโควตาผูกกับผู้ให้บริการ ไม่ใช่กับชื่อโมเดล
+
+```bash
+./scripts/check-chain.sh    # ยิงจริงทุกตัวว่ายังใช้ได้ไหม — รันก่อนเริ่มงานทุกครั้ง
+```
+
+> 🔴 **`or/ox-alpha` ตายถาวร 2026-08-27** — OpenRouter จบช่วง stealth testing
+> (`openrouter/stealth/ox-alpha` — คำว่า *stealth* อยู่ในชื่อตั้งแต่แรกแต่ไม่มีใครสังเกต)
+> มันเป็น fallback อันดับ 1 และตายมาไม่รู้กี่วันโดยไม่มีอะไรฟ้อง เพราะ main ยังดีอยู่
+> **นั่นคือเหตุผลที่มี `check-chain.sh`** — chain ที่ไม่เคยถูกทดสอบคือ chain ที่ไม่มีอยู่จริง
 
 คัดจากการยิงจริง 14 ตัว — ผ่านครบ 3 เกณฑ์ 7 ตัว
 เหตุผลและตารางเต็มอยู่ที่ [`docs/MODEL-PROBE.md`](docs/MODEL-PROBE.md)
@@ -299,9 +311,10 @@ main **`oc/minimax-m3`** · fallback `nim/minimax-m3` → `mi/large` → `or/ox-
 
 | model | ต่อ 1 turn | หมายเหตุ |
 |---|---|---|
-| `oc/minimax-m3` | **2.6–3.6s** | main — เร็วสุดที่ตอบไทยนิ่ง |
-| `mi/large` | ~8s | |
-| `or/ox-alpha` | ~19s | context 1M แต่ช้าสุด |
+| `mi/ministral-14b` | **~18s** | main — 1B token/เดือน โควตาใจกว้างสุด |
+| `mi/devstral-medium` | ~51s | ใกล้เพดาน reply token ของ LINE (60s) |
+| `zen/hy3` | reasoning | ไม่ต้องมี key · ไทย 3/3 · `verified_max_prompt` 127,968 |
+| `oc/minimax-m3` | 2.6–3.6s | เร็วสุด แต่โควตา **รายสัปดาห์** หมดทั้งตระกูล `oc/*` |
 | `nim/minimax-m3` | 5.7–20.3s | minimax ตัวเดียวกัน คนละเจ้า แกว่งมาก |
 
 **Hermes กิน ~13K tokens ต่อ 1 call เป็นอย่างต่ำ** (system prompt 15.3 KB +
@@ -321,8 +334,9 @@ docker exec hermes-line-agent hermes prompt-size --platform line   # พื้�
 ### สลับโมเดลจากในแชท
 
 ```
-/fast        → oc/minimax-m3     (เร็วสุด)
-/big         → or/ox-alpha       (context 1M)
+/turbo       → oc/minimax-m3     (เร็วสุด · /fast ใช้ไม่ได้ ชนคำสั่ง built-in)
+/minimax     → oc/minimax-m3
+/big         → zen/hy3           (prompt ใหญ่ 127,968)
 /nim         → nim/minimax-m3
 /mistral     → mi/large
 /model <ชื่อ>              เช่น /model oc/minimax-m3
