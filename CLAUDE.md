@@ -158,7 +158,34 @@ dict ทำให้ provider ถูกนับสองครั้ง แล�
 
 ### เลือกโมเดลต้องดู "ขนาดโควตา" ไม่ใช่แค่ `quota_window`
 1 turn ของบอทนี้ = **~59K tokens** — `okmd/*` มี ~40K/วัน ซึ่ง**เล็กกว่า turn เดียว**
-`quota_window: daily` เหมือนกันแต่ cerebras ~1M/วัน ต่างกันคนละโลก อ่าน `provider_quota`
+`quota_window: daily` เหมือนกันแต่ cerebras ~1M/วัน ต่างกันคนละโลก
+
+ตอนนี้เป็นฟิลด์ที่เครื่องอ่านได้แล้ว (55/115 ตัว) — **เลิกอ่าน `provider_quota` ที่เป็น
+free text** และ `pick-model.sh agent <turn size>` กรองให้เองแล้ว
+
+| ฟิลด์ | ตัวอย่าง | ใคร |
+|---|---|---|
+| `quota_tokens_per_window` | 40,000 | เจ้าที่นับเป็น token |
+| `quota_requests_per_window` | 1,000 | OpenRouter |
+| `quota_tpm` | 60,000 | token ต่อ**นาที** |
+| `quota_rpm` | 40 | NVIDIA NIM — request ต่อ**นาที** |
+| `quota_neurons_per_window` | 10,000 | Cloudflare |
+
+🔴 **`_per_window` ผูกกับ `quota_window` ส่วน `_tpm`/`_rpm` เป็นต่อนาทีเสมอ**
+ถ้าอ่าน `quota_requests_per_window: 40` โดยไม่ดู `quota_window: rpm-only` ประกอบ
+จะเข้าใจเป็น 40 ครั้ง/วัน **ผิดไป 1,440 เท่า** — นี่คือเหตุผลที่แยกฟิลด์
+
+⚠️ โมเดลตัวเดียวมีได้หลายเพดานพร้อมกัน — `openrouter` มีทั้ง
+`quota_requests_per_window: 50` และ `quota_rpm: 20` ต้องอ่านทั้งคู่
+
+⚠️ **โควตาบางเจ้าผูกกับบัญชีของ gateway ไม่ใช่คุณสมบัติของโมเดล** — เพดานรายวัน
+ของ OpenRouter ขึ้นกับยอดเติมเงินสะสม (`< $10` = 50/วัน · `>= $10` = 1,000/วัน)
+เราจึงกรอกค่าพวกนี้แทนเขาไม่ได้ ต้องให้ทีม gateway เป็นคนใส่
+
+### ที่มาของค่าโควตาสำคัญเท่ากับตัวค่า
+`quota_source` = `provider-docs` | `observed` | `inferred` และ **`observed` ชนะเสมอ
+เวลาขัดกัน** · `observed` แปลว่าชนโควตาจริงจนโดน 429 ไม่ใช่แค่ "ใช้ไปเยอะแล้วยังไม่ชน"
+ถ้าเราชนโควตาเมื่อไหร่ ส่งกลับเป็น PR ได้เลย ไม่ต้องรอ issue
 
 ### โมเดล stealth/preview มีวันหมดอายุในตัว
 `or/ox-alpha` = `openrouter/stealth/ox-alpha` ตายถาวรกลางทาง อย่าเอาไปวางเป็น fallback
