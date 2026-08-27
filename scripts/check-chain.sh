@@ -117,6 +117,32 @@ rc=0
 [ "$main_ok" = 1 ] || rc=1
 [ "$fb_total" = 0 ] || [ "$fb_ok" -gt 0 ] || rc=1
 
+# ---------------------------------------------------------------------------
+# ตรวจโครงของ chain ไม่ใช่แค่ว่าแต่ละตัวยังตอบไหม
+#   - ชั้นติดกันอยู่ quota_pool เดียวกัน = หมดพร้อมกัน = ไม่มีตัวสำรองจริง
+#   - ชื่อที่ไม่มีใน gateway: LiteLLM เงียบ อาการเหมือนไม่ได้ตั้ง fallback เลย
+#   - ชื่อที่มี answered_by: เป็น alias ไป provider อื่นแล้ว จะได้คนละโมเดล
+# ---------------------------------------------------------------------------
+[ "$QUIET" = 1 ] || {
+  echo
+  echo "${DIM}--- โครงของ chain ---${RESET}"
+}
+MI=$(docker run --rm --network llm-clients curlimages/curl:latest \
+  -sS --max-time 30 "${LITELLM_BASE_URL%/}/model/info" \
+  -H "Authorization: Bearer $LITELLM_KEY" 2>/dev/null)
+if [ -z "$MI" ]; then
+  [ "$QUIET" = 1 ] || echo "  ${YELLOW}ดึง /model/info ไม่ได้ — ข้ามการตรวจโครง${RESET}"
+else
+  mi_file=$(mktemp); roles_file=$(mktemp)
+  printf '%s' "$MI" > "$mi_file"; printf '%s\n' "$ROLES" > "$roles_file"
+  if [ "$QUIET" = 1 ]; then
+    python3 scripts/_chain_audit.py "$mi_file" "$roles_file" >/dev/null || rc=1
+  else
+    python3 scripts/_chain_audit.py "$mi_file" "$roles_file" || rc=1
+  fi
+  rm -f "$mi_file" "$roles_file"
+fi
+
 [ "$QUIET" = 1 ] || {
   echo
   echo "${DIM}ตัวสำรองที่ใช้ได้ตอนนี้: $fb_ok/$fb_total${RESET}"

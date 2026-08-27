@@ -79,6 +79,13 @@ docker compose up -d               # profile tunnel: docker compose --profile tu
 `disable_fallbacks` แล้วแยก `ตายถาวร / โควตาหมด / ช้าเกิน / วัดผิด` ออกจากกัน
 chain ที่ไม่เคยถูกทดสอบคือ chain ที่ไม่มีอยู่จริง
 
+นอกจากยิงทีละตัวแล้วมันตรวจ **โครงของ chain** ด้วย (`_chain_audit.py`):
+
+- ชั้นติดกันอยู่ `quota_pool` เดียวกันไหม — ถ้าใช่คือหมดพร้อมกัน เท่ากับไม่มีตัวสำรอง
+- ชื่อในchain มีอยู่จริงใน `/model/info` ไหม — **ชื่อผิด LiteLLM เงียบ** คืน error
+  ของตัวหลักมาเฉย ๆ อาการเหมือนไม่ได้ตั้ง fallback เลยทุกประการ
+- ตัวไหนมี `answered_by` ไหม — ถ้ามีแปลว่าเป็น alias ไป provider อื่นแล้ว
+
 ### รัน CI ในเครื่องก่อน push
 
 `.github/workflows/check.yml` รัน 5 อย่าง ทำเองได้ด้วย:
