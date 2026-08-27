@@ -44,7 +44,26 @@ container ชื่อ **`nst-hermes-line-bot`** ไม่ใช่ `hermes-line
 HERMES_CONTAINER=nst-hermes-line-bot ./scripts/probe-thai.sh -n 3 zen/hy3
 ```
 
-## คำสั่งที่ใช้บ่อย
+## 🌅 เริ่มวันด้วยคำสั่งนี้ — คำสั่งเดียวจบ
+
+```bash
+./scripts/daily.sh
+```
+
+รวมงานประจำวันไว้ทั้งหมด **พร้อมพารามิเตอร์ที่ถูกต้องอยู่ในตัวแล้ว** ไม่ต้องจำ:
+
+1. บอทยังวิ่งไหม (`nst-hermes-line-bot`)
+2. fallback chain — ยิงจริงทุกตัว
+3. สำเนา `config.yaml.tmpl` ทั้ง 3 ที่ยังตรงกันไหม
+4. โมเดลที่รอโควตาคืน — ถ้าคืนแล้วมันพิมพ์คำสั่ง probe ที่พร้อมวางให้เลย
+5. issue/PR ที่ยังเปิดอยู่ใน 3 repo
+
+ตัวแปรที่ต้องจำ (ชื่อ container · path ของบอท · รายชื่อ repo · โมเดลที่รอโควตา)
+รวมไว้บนหัวไฟล์ `scripts/daily.sh` ที่เดียว — สถานการณ์เปลี่ยนก็แก้ตรงนั้น
+
+`--no-github` ข้ามส่วนที่ยิง GitHub API (ตอนโดน rate limit) · `--quota` เช็คเฉพาะข้อ 4
+
+## คำสั่งอื่น
 
 ```bash
 ./scripts/init.sh                  # สร้าง data/config.yaml จาก template (--force = ทับ)
