@@ -17,8 +17,13 @@ cd "$(dirname "$0")/.." || exit 1
 
 GREEN=$'\033[0;32m'; RED=$'\033[0;31m'; YELLOW=$'\033[0;33m'; DIM=$'\033[2m'; RESET=$'\033[0m'
 
+# ชื่อ container — ตั้ง HERMES_CONTAINER ทับได้
+# บอทที่ deploy ด้วย botforge ใช้ชื่อ <prefix>-line-bot ไม่ใช่ <prefix>-agent
+#   HERMES_CONTAINER=nst-hermes-line-bot ./scripts/probe-thai.sh mi/ministral-14b
+_container_override="${HERMES_CONTAINER:-}"
 CONTAINER="hermes-line-agent"
 [ -f .env ] && { set -a; . ./.env; set +a; CONTAINER="${CONTAINER_PREFIX:-hermes-line}-agent"; }
+[ -n "$_container_override" ] && CONTAINER="$_container_override"
 
 ROUNDS=3
 # ตั้งสูงไว้ก่อน — reasoning model บางตัวใช้ 200s+ ต่อ turn ตัดสายเร็วไปจะอ่านผลผิด

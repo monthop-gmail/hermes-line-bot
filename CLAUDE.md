@@ -1,0 +1,126 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## repo นี้คืออะไร
+
+POC ต่อ Hermes Agent เข้า LINE OA โดยใช้โมเดลจาก LiteLLM gateway
+**ไม่มีโค้ด bridge** — Hermes มี LINE adapter ในตัว (`plugins/platforms/line/adapter.py`)
+repo นี้จึงมีแต่ config + สคริปต์ + บันทึกบั๊กที่เจอ
+
+ของในนี้ถูกยกไปเป็น `templates/bot-service-hermes/` ของ botforge แล้ว
+
+## ⚠️ โฟลเดอร์ไหนเป็นของใคร
+
+| path | เจ้าของ | ทำอะไรได้ |
+|---|---|---|
+| `/opt/docker-test/test-hermes-line` | **เรา** | repo นี้ = `hermes-line-bot` (public) |
+| `/opt/docker-test/poc-huggingface` | **อีกทีม** | **อ่านอย่างเดียว** — ห้าม git/แก้ไฟล์ |
+| `/opt/docker-test/llm-gateway` | เรา | clone ของ repo เดียวกับที่อีกทีม deploy — ทำ branch/PR ที่นี่ |
+| `/opt/docker-test/server-botforge-v2` | อีกทีม | ส่ง PR ไป ไม่ commit ตรง |
+
+**สื่อสารกับทีมอื่นผ่าน GitHub issues/PR เท่านั้น** เคยเผลอ `git checkout -b` ในโฟลเดอร์
+อีกทีม (2026-08-26) ผลบน GitHub ถูก แต่ทิ้งรอยใน reflog เขาและเสี่ยงชน working tree
+
+## บอทจริงไม่ได้รันจาก repo นี้
+
+รันจาก botforge: `/opt/docker-test/server-botforge-v2/projects/nst-hermes/bot-service/`
+container ชื่อ **`nst-hermes-line-bot`** ไม่ใช่ `hermes-line-agent`
+
+สคริปต์ probe จึงต้องระบุ container:
+
+```bash
+HERMES_CONTAINER=nst-hermes-line-bot ./scripts/probe-thai.sh -n 3 zen/hy3
+```
+
+## คำสั่งที่ใช้บ่อย
+
+```bash
+./scripts/init.sh                  # สร้าง data/config.yaml จาก template (--force = ทับ)
+docker compose up -d               # profile tunnel: docker compose --profile tunnel up -d
+./scripts/smoke-webhook.sh         # ทดสอบ webhook โดยไม่ต้องมี LINE จริง (--group / --room / --id)
+./scripts/trim-skills.sh           # ตัด skills ตาม config/skills-keep.txt (--restore = คืน 71 ตัว)
+./scripts/probe-litellm.sh         # คัดโมเดล: ยิง API ตรง
+./scripts/probe-thai.sh            # คัดโมเดล: ยิงผ่าน agent loop จริง — ตัวชี้ขาด
+./scripts/check-chain.sh           # ⭐ โมเดลทุกตัวที่ config อ้างถึงยังใช้ได้ไหม (-q = เอาแต่ exit code)
+```
+
+**รัน `check-chain.sh` ก่อนเริ่มงานทุกครั้ง** — มันยิงจริงทุกตัวใน chain ด้วย
+`disable_fallbacks` แล้วแยก `ตายถาวร / โควตาหมด / ช้าเกิน / วัดผิด` ออกจากกัน
+chain ที่ไม่เคยถูกทดสอบคือ chain ที่ไม่มีอยู่จริง
+
+### รัน CI ในเครื่องก่อน push
+
+`.github/workflows/check.yml` รัน 5 อย่าง ทำเองได้ด้วย:
+
+```bash
+python3 -c "import yaml; yaml.safe_load(open('config/config.yaml.tmpl'))"
+for f in scripts/*.sh; do bash -n "$f"; done
+docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -S warning scripts/*.sh
+python3 -m py_compile scripts/_lang.py
+```
+
+## สถาปัตยกรรม
+
+```
+LINE ──https──> cloudflared ──> hermes (LINE adapter ในตัว) ──> LiteLLM gateway
+                                    │                              (network llm-clients)
+                                    └── /opt/data (= ./data) config.yaml .env sessions logs
+```
+
+**`config/config.yaml.tmpl` → `data/config.yaml`** — แก้ที่ template เสมอ แล้ว `init.sh --force`
+ไฟล์ที่ Hermes อ่านจริงคือ `data/config.yaml` ซึ่ง gitignore ไว้
+
+**template มี 3 สำเนาที่ต้องตรงกัน** (เคย drift มาแล้ว) — เช็คด้วย md5:
+
+```
+config/config.yaml.tmpl
+/opt/docker-test/server-botforge-v2/templates/bot-service-hermes/config/config.yaml.tmpl
+/opt/docker-test/server-botforge-v2/projects/nst-hermes/bot-service/config/config.yaml.tmpl
+```
+
+**network**: ต่อ LiteLLM ผ่าน `llm-clients` (มีแค่ litellm + client) ไม่ใช่ `llm-net`
+ใช้ virtual key ไม่ใช่ master key
+
+## กฎที่พลาดมาแล้วจริง — อย่าพลาดซ้ำ
+
+### วัดค่าโมเดล ต้องส่ง `disable_fallbacks: true` เสมอ
+ไม่งั้นได้ผลของตัวสำรองมาแปะชื่อโมเดลที่ขอ เกิดมาแล้ว 5 ครั้งในโปรเจกต์นี้กับ gateway
+`probe-thai.sh` ยิงผ่าน CLI ใส่ในตัว request ไม่ได้ จึงใช้ `--usage-file` อ่านว่าใครตอบจริง
+
+### อ่านค่าจาก `/model/info` ต้องเช็ค `answered_by`
+มีค่า = ชื่อนั้นไม่ได้ตอบเอง ตัวเลขที่ติดมาเป็นของตัวสำรอง
+
+### `LITELLM_BASE_URL` ลงท้ายด้วย `/v1` อยู่แล้ว
+ต่อ `/chat/completions` ตรง ๆ — เติม `/v1` ซ้ำได้ 404 `{"detail":"Not Found"}`
+
+### ตรวจ response ต้องดู HTTP code + `choices` ไม่ใช่แค่ว่ามี key `error` ไหม
+LiteLLM คืน error หลายรูป (`error.message`, `detail`) ตัวตรวจที่ดูรูปเดียวจะรายงานว่าผ่านทั้งที่พัง
+
+### YAML: `*` เปล่า ๆ คือ alias reference
+`group_allowed_chats: *` ทำให้ไฟล์ parse ไม่ผ่านทั้งไฟล์ **และ `hermes config check`
+ยังตอบว่า "✓ ไม่มีคำเตือน"** — ต้องใส่ quote `"*"` (CI จับให้แล้ว)
+
+### `quick_commands` ห้ามชนชื่อคำสั่ง built-in
+`/fast` ชนกับของ Hermes แล้ว alias เงียบไปเฉย ๆ ไม่มี error — เปลี่ยนเป็น `/turbo`
+เช็คก่อนตั้งชื่อ: `docker exec <container> hermes --help`
+
+### provider ต้องเป็น `custom_providers:` (list) ไม่ใช่ `providers:` (dict)
+dict ทำให้ provider ถูกนับสองครั้ง แล้ว `/model <ชื่อ>` เด้ง
+*"declared by multiple configured providers"*
+
+### เลือกโมเดลต้องดู "ขนาดโควตา" ไม่ใช่แค่ `quota_window`
+1 turn ของบอทนี้ = **~59K tokens** — `okmd/*` มี ~40K/วัน ซึ่ง**เล็กกว่า turn เดียว**
+`quota_window: daily` เหมือนกันแต่ cerebras ~1M/วัน ต่างกันคนละโลก อ่าน `provider_quota`
+
+### โมเดล stealth/preview มีวันหมดอายุในตัว
+`or/ox-alpha` = `openrouter/stealth/ox-alpha` ตายถาวรกลางทาง อย่าเอาไปวางเป็น fallback
+
+### `status` ใน `/model/info` เป็นภาพตอน health-check ล่าสุด ไม่ใช่สภาพตอนนี้
+จะรู้ว่าตัวไหนใช้ได้จริงต้องยิงเอง
+
+## เอกสาร
+
+- `README.md` — POC log เต็ม (⚠️ หัวข้อ "โมเดล" ยังค้างของเก่า main เป็น `oc/minimax-m3`)
+- `docs/MODEL-PROBE.md` — ตารางผลคัดโมเดล
+- `config/SOUL.md` — persona สำหรับ LINE (ห้าม markdown, ตอบสั้น, ภาษาเดียวกับผู้ใช้)
