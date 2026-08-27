@@ -16,11 +16,22 @@ repo นี้จึงมีแต่ config + สคริปต์ + บั�
 |---|---|---|
 | `/opt/docker-test/test-hermes-line` | **เรา** | repo นี้ = `hermes-line-bot` (public) |
 | `/opt/docker-test/poc-huggingface` | **อีกทีม** | **อ่านอย่างเดียว** — ห้าม git/แก้ไฟล์ |
-| `/opt/docker-test/llm-gateway` | เรา | clone ของ repo เดียวกับที่อีกทีม deploy — ทำ branch/PR ที่นี่ |
-| `/opt/docker-test/server-botforge-v2` | อีกทีม | ส่ง PR ไป ไม่ commit ตรง |
+| `/opt/docker-test/server-botforge-v2` | **อีกทีม** | **อ่านอย่างเดียว** — ส่ง PR ไป ไม่ commit ตรง |
 
 **สื่อสารกับทีมอื่นผ่าน GitHub issues/PR เท่านั้น** เคยเผลอ `git checkout -b` ในโฟลเดอร์
 อีกทีม (2026-08-26) ผลบน GitHub ถูก แต่ทิ้งรอยใน reflog เขาและเสี่ยงชน working tree
+
+### จะแก้ repo ของทีมอื่น → clone ลง scratchpad
+
+**ห้ามสร้างโฟลเดอร์ถาวรใน `/opt/docker-test/`** — ชื่อจะไปชนกับของทีมอื่นและดูเหมือน
+เป็นของเขา ให้ clone ใหม่ทุก session ลง scratchpad แทน (ใช้เวลา ~2 วินาที):
+
+```bash
+git clone https://github.com/monthop-gmail/llm-gateway.git "$SCRATCH/llm-gateway"
+cd "$SCRATCH/llm-gateway" && git checkout -b fix/... && gh pr create ...
+```
+
+การอ่านไฟล์/ดู log/ดูสคริปต์ในโฟลเดอร์เขาโดยตรงทำได้ตามปกติ — read-only ไม่กระทบใคร
 
 ## บอทจริงไม่ได้รันจาก repo นี้
 
