@@ -22,8 +22,12 @@ GREEN=$'\033[0;32m'; RED=$'\033[0;31m'; YELLOW=$'\033[0;33m'
 BLUE=$'\033[0;34m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
 
 KEEP_FILE="config/skills-keep.txt"
+# ชื่อ container — ตั้ง HERMES_CONTAINER ทับได้ (เหมือน probe-thai.sh)
+# บอทที่ deploy ด้วย botforge ใช้ชื่อ <prefix>-line-bot ไม่ใช่ <prefix>-agent
+_container_override="${HERMES_CONTAINER:-}"
+[ -f .env ] && { set -a; . ./.env; set +a; }
 CONTAINER="${CONTAINER_PREFIX:-hermes-line}-agent"
-[ -f .env ] && { set -a; . ./.env; set +a; CONTAINER="${CONTAINER_PREFIX:-hermes-line}-agent"; }
+[ -n "$_container_override" ] && CONTAINER="$_container_override"
 : "${PUID:=$(id -u)}"; : "${PGID:=$(id -g)}"
 
 running() { docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; }
@@ -79,16 +83,24 @@ docker exec "$CONTAINER" /opt/hermes/.venv/bin/hermes skills opt-out --remove --
 # mlops/models) รอดมาเสมอ  keep-list ต้องเป็นตัวตัดสินสุดท้าย จึงกวาดซ้ำเอง
 echo
 echo "${BOLD}${BLUE}▸ 2b. กวาดตัวที่ opt-out ไม่แตะ${RESET}"
-swept=0
+swept=0; kept_local=0
 while read -r d; do
   [ -n "$d" ] || continue
   for k in "${KEEP[@]}"; do [ "$k" = "$d" ] && continue 2; done
+  # 🔴 skill ที่เขียนเอง (ไม่มีใน /opt/hermes/skills) ต้องไม่ถูกกวาด
+  #    keep-list ใส่ชื่อพวกนี้ไม่ได้เพราะขั้นตอน 1 ตรวจว่าต้องมีใน bundled ก่อน
+  #    2026-09-03 บอทบันทึก devops/llm-gateway-catalog เอง แล้วเกือบโดนลบ
+  #    ทั้งที่หัวไฟล์นี้เขียนไว้เองว่า "local skill จึงอยู่รอดข้าม restart"
+  if ! docker exec "$CONTAINER" test -d "/opt/hermes/skills/$d" 2>/dev/null; then
+    echo "${GREEN}  ✓${RESET} $d ${DIM}(skill ที่เขียนเอง — ไม่แตะ)${RESET}"
+    kept_local=$((kept_local+1)); continue
+  fi
   docker exec "$CONTAINER" rm -rf "/opt/data/skills/$d"
   echo "${YELLOW}  −${RESET} $d ${DIM}(official optional — opt-out ไม่ลบให้)${RESET}"
   swept=$((swept+1))
 done < <(docker exec "$CONTAINER" find /opt/data/skills -mindepth 2 -maxdepth 2 -type d \
   -printf '%P\n' 2>/dev/null || true)
-[ "$swept" = 0 ] && echo "${DIM}  ไม่มีตัวตกค้าง${RESET}"
+[ "$swept" = 0 ] && [ "$kept_local" = 0 ] && echo "${DIM}  ไม่มีตัวตกค้าง${RESET}"
 
 # --------------------------------------------------------------- copy กลับ -
 echo
