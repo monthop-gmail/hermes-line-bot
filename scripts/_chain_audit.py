@@ -104,7 +104,17 @@ def main() -> int:
     for model, role, ans in aliased:
         problems.append(f"{role}: {model} เป็น alias ไป {ans} — จะได้โมเดลอื่น ไม่ใช่ตัวที่เลือก")
 
-    # 3. ชั้นติดกันอยู่ quota_pool เดียวกัน = หมดพร้อมกัน = ไม่มีตัวสำรองจริง
+    # 3. โครงของ pool
+    #
+    # 2026-09-04 ปรับจาก "ชั้นติดกันซ้ำ pool = ปัญหา" เป็น "เตือน"
+    # เพราะกฎเดิมตั้งบนสมมติฐานว่าตัวหลักตายเพราะ pool หมด ซึ่งไม่จริงเสมอ —
+    # ของ hermes-line-bot ใช้ mistral 0.33% ของโควตาเดือน สาเหตุที่ตัวหลัก
+    # จะตายจริงคือ 403 ชั่วคราว/ถูกปลด/ช้า ซึ่งเป็นปัญหารายโมเดล ไม่ใช่รายก้อน
+    #
+    # อันตรายจริงคือ "ทั้ง chain อยู่ก้อนเดียว" — อันนั้นยังเป็นปัญหา (exit 1)
+    #
+    # ถ้าปล่อยให้ซ้ำ pool เป็นปัญหาต่อไป daily.sh จะแดงทุกวันจนไม่มีใครอ่าน
+    # (บทเรียนเดียวกับ health-check exit code ของทีม gateway)
     print("ลำดับ chain กับ quota_pool:")
     prev_pool = prev_name = None
     for model, role in chain:
@@ -112,14 +122,22 @@ def main() -> int:
         flag = ""
         if prev_pool is not None and pool == prev_pool:
             flag = "  <-- ก้อนเดียวกับชั้นก่อนหน้า"
-            problems.append(
-                f"{role}: {model} อยู่ pool {pool} เดียวกับ {prev_name} — หมดโควตาพร้อมกัน"
+            warnings.append(
+                f"{model} ({role}): อยู่ pool {pool} เดียวกับ {prev_name} — "
+                "ถ้าก้อนนี้หมดจะตายพร้อมกัน"
             )
         print(f"  {role:<13} {model:<22} {pool}{flag}")
         prev_pool, prev_name = pool, model
 
     pools = {meta[m].get("quota_pool") or "?" for m, _ in chain}
     print(f"\nchain ยาว {len(chain)} ชั้น กระจายอยู่ {len(pools)} pool")
+
+    # ทั้ง chain อยู่ก้อนเดียว = ไม่มีตัวสำรองจริงเลย ต่อให้มีกี่ชั้นก็ตาม
+    if len(chain) > 1 and len(pools) == 1:
+        problems.append(
+            f"ทั้ง chain {len(chain)} ชั้นอยู่ pool {pools.pop()} ก้อนเดียว — "
+            "ก้อนหมดเมื่อไหร่ตายทั้งเส้น เท่ากับไม่มีตัวสำรอง"
+        )
 
     if warnings:
         # เตือน = กำลังจะพัง ยังไม่ถือว่า chain ใช้ไม่ได้ จึงไม่ทำให้ exit 1

@@ -87,10 +87,24 @@ model:
 # ชั้นนี้เป็น fallback ชั้นเดียวของระบบ — ฝั่ง gateway ปิดไปแล้วด้วย extra_body ข้างบน
 # เรียงให้ "ข้าม provider" ทุกชั้น และเอาตัวที่เร็วกว่าไว้ก่อน
 # ⚠️ อย่าเรียง mi/* ต่อกันเป็นชั้นแรก — โควตาผูกกับ provider ตายพร้อมกัน
+# ⚠️ ชั้น 1 อยู่ pool เดียวกับ main โดยตั้งใจ (ทบทวน 2026-09-04)
+#    กฎ "ข้าม pool ทุกชั้น" ตั้งบนสมมติฐานว่า main ตายเพราะ pool หมด
+#    แต่วัดจริง: เราใช้ mistral 110,615 token/วัน = 3.3M/เดือน จากโควตา 1B
+#    → 0.33% ต้องใช้เพิ่มอีก 300 เท่าถึงจะทำให้ pool หมด
+#    สาเหตุที่ mi/ministral-14b จะตายจริงคือ 403 ชั่วคราว/ถูกปลด/ช้า
+#    ซึ่งเป็นปัญหา "รายโมเดล" ไม่ใช่ "รายก้อน" — ตัวพี่น้องใน pool เดียวกันจึงรอด
+#
+#    ชั้นที่ผู้ใช้เห็นตอนมีปัญหาคือชั้น 1 จึงต้องเป็นตัวที่คุยรู้เรื่อง
+#    2026-09-04 zen/laguna-s-2.1 (ชั้น 1 เดิม) พ่น marker ภายในของ Hermes
+#    ออกมาให้คนในกลุ่มเห็น — "[OUT-OF-BAND USER MESSAGE]" ซึ่งเป็นของที่
+#    โมเดลควรอ่านอย่างเดียว ไม่ใช่พูดออกมา จึงย้ายไปท้ายสุด
+#
+#    การข้าม pool ยังอยู่ครบที่ชั้น 2 (nvidia-nim) และ 3 (opencode-zen)
+#    ซึ่งคือชั้นที่จะทำงานถ้าเกิดปัญหาระดับ pool จริง ๆ
 fallback_providers:
-  - { provider: "custom:litellm", model: "zen/laguna-s-2.1" }    # OpenCode Zen · max 127,914 · ไทย 3/3
-  - { provider: "custom:litellm", model: "mi/devstral-medium" }  # Mistral     51s  · max 127,972
-  - { provider: "custom:litellm", model: "nim/minimax-m3" }      # NVIDIA NIM
+  - { provider: "custom:litellm", model: "mi/devstral-medium" }  # Mistral      51s · max 127,972 · คุยรู้เรื่อง
+  - { provider: "custom:litellm", model: "nim/minimax-m3" }      # NVIDIA NIM   pool อื่นตัวแรก — แกว่ง/ช้าบ้าง
+  - { provider: "custom:litellm", model: "zen/laguna-s-2.1" }    # OpenCode Zen ไทย 3/3 แต่ทำตามคำสั่งไม่แน่น
   # ⚠️ ถอด cb/gpt-oss-120b ออกจาก chain — verified_max_prompt แค่ 13,655 ซึ่งต่ำกว่า
   #    context ที่ hermes ใช้จริง (สูงสุด 43,330) และมันพังแบบ "ค้างเงียบ" ไม่คืน error
   #    fallback ที่ล้มแบบเงียบแย่กว่าไม่มี fallback เพราะกินเวลา timeout ไปเปล่า ๆ
