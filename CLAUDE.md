@@ -83,7 +83,31 @@ docker compose up -d               # profile tunnel: docker compose --profile tu
 ./scripts/probe-litellm.sh         # คัดโมเดล: ยิง API ตรง
 ./scripts/probe-thai.sh            # คัดโมเดล: ยิงผ่าน agent loop จริง — ตัวชี้ขาด
 ./scripts/check-chain.sh           # ⭐ โมเดลทุกตัวที่ config อ้างถึงยังใช้ได้ไหม (-q = เอาแต่ exit code)
+./scripts/models.sh                # ดูรายชื่อโมเดลใน gateway เพื่อคัดกรองก่อนลองเล่น (ฟรี)
 ```
+
+### อยากลองโมเดลอื่นนอก chain
+
+```bash
+./scripts/models.sh                # ดูหมวดทั้งหมด (122 ตัว)
+./scripts/models.sh agent 60000    # ผ่านเกณฑ์ agent ที่ turn ~60K ของเรา
+./scripts/models.sh thai           # โมเดลภาษาไทย
+./scripts/models.sh typhoon        # ค้นอิสระจากชื่อ/คำอธิบาย
+```
+
+แล้วพิมพ์ `/model <ชื่อ>` ในแชทได้เลย — **ไม่ต้องแก้ config**
+
+`custom_providers.models` มีไว้บอกว่า *"ตัวไหนผ่านเกณฑ์แล้ว"* **ไม่ได้กันการใช้** —
+Hermes ยอมชื่อที่ไม่อยู่ในลิสต์ (โค้ดเรียกว่า *unknown hidden model*) ยืนยันแล้วด้วย
+`zen/nemotron-3-ultra` ที่ไม่ได้อยู่ในลิสต์แต่ตอบได้ปกติ
+
+⚠️ **อย่าเปิด `discover_models: true`** — จะได้ 122 ตัวที่ส่วนใหญ่ไม่ผ่านเกณฑ์เรา
+และบางตัวพังด้วยเหตุผลที่แค็ตตาล็อกไม่ได้บอก เช่น `th/typhoon2.5` ที่ทุกอย่างดูดี
+แต่ Hermes ใช้ไม่ได้เพราะ **provider จำกัด `max_tokens` ไว้ที่ 16,384** และ Hermes
+ส่งเกินนั้น (ยิง API ตรงไม่เจอ เพราะเราตั้ง `max_tokens` เองตอนทดสอบ)
+
+`models.sh` ไม่มีตรรกะของตัวเอง — มันแค่ clone repo ของ gateway แล้วเรียก
+`pick-model.sh` ให้ถูกวิธี **เจตนาคือไม่ลอกสคริปต์เขามาไว้ที่เรา**
 
 **รัน `check-chain.sh` ก่อนเริ่มงานทุกครั้ง** — มันยิงจริงทุกตัวใน chain ด้วย
 `disable_fallbacks` แล้วแยก `ตายถาวร / โควตาหมด / ช้าเกิน / วัดผิด` ออกจากกัน
