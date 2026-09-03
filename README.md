@@ -290,7 +290,7 @@ group_sessions_per_user: false      # ตั้งไว้ใน config/config.
 
 ## โมเดล
 
-main **`mi/ministral-14b`** · fallback `zen/hy3` → `mi/devstral-medium` → `oc/minimax-m3` → `nim/minimax-m3`
+main **`mi/ministral-14b`** · fallback `zen/laguna-s-2.1` → `mi/devstral-medium` → `nim/minimax-m3`
 
 ทุกชั้นข้าม `quota_pool` — Mistral / OpenCode Zen / Ollama Cloud / NVIDIA NIM
 เพราะโควตาผูกกับผู้ให้บริการ ไม่ใช่กับชื่อโมเดล
@@ -313,9 +313,8 @@ main **`mi/ministral-14b`** · fallback `zen/hy3` → `mi/devstral-medium` → `
 |---|---|---|
 | `mi/ministral-14b` | **~18s** | main — 1B token/เดือน โควตาใจกว้างสุด |
 | `mi/devstral-medium` | ~51s | ใกล้เพดาน reply token ของ LINE (60s) |
-| `zen/hy3` | reasoning | ไม่ต้องมี key · ไทย 3/3 · `verified_max_prompt` 127,968 |
-| `oc/minimax-m3` | 2.6–3.6s | เร็วสุด แต่โควตา **รายสัปดาห์** หมดทั้งตระกูล `oc/*` |
-| `nim/minimax-m3` | 5.7–20.3s | minimax ตัวเดียวกัน คนละเจ้า แกว่งมาก |
+| `zen/laguna-s-2.1` | reasoning | ไม่ต้องมี key · ไทย 3/3 · `verified_max_prompt` 127,914 |
+| `nim/minimax-m3` | 5.7–20.3s | minimax · แกว่งมาก บาง endpoint ช้า/timeout |
 
 **Hermes กิน ~13K tokens ต่อ 1 call เป็นอย่างต่ำ** (system prompt 15.3 KB +
 tool schemas 31.0 KB เมื่อวัดที่ `--platform line`) — ยืนยันจาก log จริง:
@@ -334,17 +333,16 @@ docker exec hermes-line-agent hermes prompt-size --platform line   # พื้�
 ### สลับโมเดลจากในแชท
 
 ```
-/turbo       → oc/minimax-m3     (เร็วสุด · /fast ใช้ไม่ได้ ชนคำสั่ง built-in)
-/minimax     → oc/minimax-m3
-/big         → zen/hy3           (prompt ใหญ่ 127,968)
-/nim         → nim/minimax-m3
-/mistral     → mi/large
-/model <ชื่อ>              เช่น /model oc/minimax-m3
+/model <ชื่อ>              เช่น /model zen/laguna-s-2.1
 /model <ชื่อ> --global     ให้จำข้าม session
 ```
 
-ทางลัดสี่ตัวแรกมาจาก `quick_commands` ใน `config/config.yaml.tmpl` (`type: alias`
-= เขียนคำสั่งใหม่ส่งต่อให้ handler ของ `/model` — ไม่ใช่ `type: exec` ที่รัน shell)
+`/model` เป็นคำสั่ง built-in ของ Hermes อ่านรายชื่อจาก `custom_providers` ตรง ๆ
+
+> **เคยมีทางลัด `/turbo` `/minimax` `/big` `/nim` `/mistral` — ถอดออกแล้ว 2026-09-03**
+> เพราะเป็นสำเนาที่สองของรายชื่อโมเดลที่ต้องดูแลแยก วันนั้นพบว่า **3 ใน 5 ชี้ไป
+> โมเดลที่ใช้ไม่ได้แล้วโดยไม่มีใครรู้** ทุกครั้งที่เปลี่ยนโมเดลใน chain ต้องมาไล่แก้
+> ที่นี่ด้วย ซึ่งลืมได้ง่าย — เหตุผลเต็มอยู่ในคอมเมนต์ของ `config/config.yaml.tmpl`
 
 > 🔴 **ต้องประกาศ provider เป็น `custom_providers:` (list) ไม่ใช่ `providers:` (dict)**
 > ถ้าใช้ dict Hermes จะนับ provider ตัวเดียวเป็นสองตัว (slug `litellm` จาก key
@@ -461,7 +459,7 @@ tool schemas       44,758 B    31,772 B     ← ตัด toolsets
   (`rejecting unauthorized source`) ทดสอบครบทั้ง user และ group
 - ✅ ลายเซ็นผิด → **401** (ไม่ใช่ 403 — 403 สงวนให้ media endpoint, `adapter.py:952` vs `:1418`)
 - ✅ `data/config.yaml` โหลดผ่าน — `Config version: 33 ✓` ไม่มี warning
-- ✅ **เส้นทางโมเดลครบวงจร** — LINE → adapter → LiteLLM → `oc/minimax-m3` → tool call → ตอบไทย
+- ✅ **เส้นทางโมเดลครบวงจร** — LINE → adapter → LiteLLM → โมเดล → tool call → ตอบไทย
 - ✅ **persona สำหรับ LINE ทำงาน** — ตอบข้อความล้วน ไม่มี `**bold**` / ตาราง markdown
 - ✅ **ตัด skills 71 → 4** — skills index 6,886 B → 835 B · อยู่รอดข้าม restart
   (log ขึ้น `skipped — profile opted out`) · รันซ้ำได้ผลเท่าเดิม

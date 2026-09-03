@@ -221,13 +221,29 @@ platform_toolsets:
   # ให้ CLI เหมือนกัน จะได้ทดสอบด้วย `hermes -z` แล้วเจอสภาพเดียวกับที่ LINE เจอ
   cli: *enabled_toolsets
 
-# --- ทางลัดสลับโมเดล ---------------------------------------------------------
-# type: alias = เขียนคำสั่งใหม่แล้วส่งต่อให้ handler ของจริง (gateway/run.py:14862)
-# target ไม่ต้องมี / นำหน้า และ argument ที่ผู้ใช้พิมพ์ต่อท้ายจะถูกส่งตามไปด้วย
-# ไม่ใช่ type: exec — exec คือรัน shell ซึ่งไม่ใช่สิ่งที่ต้องการตรงนี้
+# --- ทางลัดสลับโมเดล: ถอดออกแล้ว (2026-09-03) --------------------------------
 #
-# พิมพ์ /model <ชื่อ> ตรง ๆ ก็ยังได้ ทางลัดนี้ไว้ให้จำง่ายตอนคุยใน LINE
-# ⚠️ ชื่อ quick command ต้องไม่ชนกับคำสั่ง built-in ของ Hermes
+# เคยมี 5 ตัว: /turbo /minimax /big /nim /mistral
+#
+# เหตุผลที่ถอด — มันเป็น "สำเนาที่สองของรายชื่อโมเดล" ที่ต้องดูแลแยก
+#
+#   2026-09-03 พบว่า 3 ใน 5 ชี้ไปโมเดลที่ใช้ไม่ได้แล้ว โดยไม่มีใครรู้:
+#     /turbo   -> oc/minimax-m3   (ย้ายไปแพ็กเกจเสียเงิน)
+#     /minimax -> oc/minimax-m3   (เดียวกัน)
+#     /big     -> zen/hy3         (OpenCode Zen ปิดชื่อ)
+#
+#   ทุกครั้งที่เปลี่ยนโมเดลใน chain ต้องมาไล่แก้ตรงนี้ด้วย ซึ่งลืมได้ง่าย
+#   และเป็นการ "แก้ config เพราะสภาพเปลี่ยน" ที่เราพยายามเลิกทำ
+#
+# `/model <ชื่อ>` เป็นคำสั่ง built-in ของ Hermes ใช้ได้อยู่แล้วและไม่มีวันตกยุค
+# เพราะมันอ่านรายชื่อจาก custom_providers ตรง ๆ ไม่ใช่จากสำเนา
+#
+# ถ้าวันหนึ่งจะเพิ่มกลับ:
+#   type: alias = เขียนคำสั่งใหม่แล้วส่งต่อให้ handler ของจริง (gateway/run.py:14862)
+#   target ไม่ต้องมี / นำหน้า argument ที่พิมพ์ต่อท้ายจะถูกส่งตามไปด้วย
+#   ไม่ใช่ type: exec — exec คือรัน shell ซึ่งไม่ใช่สิ่งที่ต้องการตรงนี้
+#
+#   ⚠️ ชื่อต้องไม่ชนกับคำสั่ง built-in ของ Hermes
 #    ถ้าชน alias จะ "ไม่ทำงานเลย" แบบเงียบ ๆ เพราะ gateway/run.py:14855 เช็ค
 #    `_cmd_def is None` ก่อน — เจอ built-in แล้วจะไม่มองหา alias เลย
 #    เคยตั้ง `fast` แล้วชนกับ /fast (สลับ Priority Processing) จึงเปลี่ยนเป็น turbo
@@ -236,27 +252,6 @@ platform_toolsets:
 #      docker exec <container> /opt/hermes/.venv/bin/python -c \
 #        "import sys;sys.path.insert(0,'/opt/hermes');\
 #         from hermes_cli.commands import is_gateway_known_command as k;print(k('ชื่อ'))"
-quick_commands:
-  turbo:
-    type: alias
-    target: model mi/ministral-3b        # 373ms — ตัวเร็วสุดที่ยืนยันแล้ว
-    description: สลับไปโมเดลเร็ว (mi/ministral-3b)
-  minimax:
-    type: alias
-    target: model nim/minimax-m3         # โมเดลเดียวกับ /nim — ชื่อที่คนจำได้
-    description: สลับไป minimax (NVIDIA NIM)
-  big:
-    type: alias
-    target: model zen/laguna-s-2.1       # verified_max_prompt 127,914 · reasoning
-    description: สลับไปโมเดล context ใหญ่ (zen/laguna-s-2.1)
-  nim:
-    type: alias
-    target: model nim/minimax-m3         # minimax ตัวเดียวกัน คนละเจ้า
-    description: สลับไป minimax ฝั่ง NVIDIA NIM
-  mistral:
-    type: alias
-    target: model mi/large
-    description: สลับไป Mistral Large
 
 agent:
   max_turns: ${HERMES_MAX_TURNS}
