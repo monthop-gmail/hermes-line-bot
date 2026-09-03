@@ -89,12 +89,32 @@ docker compose up -d               # profile tunnel: docker compose --profile tu
 `disable_fallbacks` แล้วแยก `ตายถาวร / โควตาหมด / ช้าเกิน / วัดผิด` ออกจากกัน
 chain ที่ไม่เคยถูกทดสอบคือ chain ที่ไม่มีอยู่จริง
 
-นอกจากยิงทีละตัวแล้วมันตรวจ **โครงของ chain** ด้วย (`_chain_audit.py`):
+นอกจากยิงทีละตัวแล้วมันตรวจ **โครงของ chain** ด้วย (`_chain_audit.py`)
+โดยแยกเป็น 2 ระดับ:
+
+**ปัญหา (exit 1) — พังแล้ว**
 
 - ชั้นติดกันอยู่ `quota_pool` เดียวกันไหม — ถ้าใช่คือหมดพร้อมกัน เท่ากับไม่มีตัวสำรอง
 - ชื่อในchain มีอยู่จริงใน `/model/info` ไหม — **ชื่อผิด LiteLLM เงียบ** คืน error
   ของตัวหลักมาเฉย ๆ อาการเหมือนไม่ได้ตั้ง fallback เลยทุกประการ
 - ตัวไหนมี `answered_by` ไหม — ถ้ามีแปลว่าเป็น alias ไป provider อื่นแล้ว
+
+**เตือน (ไม่ทำให้ exit 1) — กำลังจะพัง**
+
+`status: dead|unknown` · `tags: deprecated` · `stability != stable` ·
+`free_until` ใกล้ถึง · `language_*: drift-*` · `status_checked_at` เก่าเกิน 3 วัน
+
+> `status: rate_limited` **ไม่ใช่คำเตือน** — ตัวสำรองที่ดีคือตัวที่ว่างตอนตัวหลักตาย
+
+### แค็ตตาล็อกรู้ก่อนเราเสมอ และอ่านฟรี
+`/model/info` เป็น management endpoint **ไม่ใช่ LLM call — เรียกกี่ครั้งก็ไม่เสียโควตา**
+(554 KB · virtual key ของเราเรียกได้ ไม่ต้องใช้ master key)
+
+gateway health-check ทุกวัน จึงรู้ก่อนเราเสมอ — 2026-09-03 เขาตั้ง `oc/minimax-m3`
+เป็น `deprecated` ตอน 03:58 แต่เรารู้ตอนยิงเอง **ทั้งที่ดึงข้อมูลนั้นมาแล้วแต่ไม่ได้อ่าน**
+
+อยากหาโมเดลใหม่ให้ clone repo เขาลง scratchpad แล้วรัน `pick-model.sh agent <turn size>`
+— อย่าลอกสคริปต์มาไว้ที่เรา จะกลายเป็นสำเนาที่สองที่ต้องดูแล
 
 ### รัน CI ในเครื่องก่อน push
 

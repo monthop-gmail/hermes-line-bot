@@ -13,9 +13,18 @@ roles.tsv = ผลจาก check-chain.sh (คอลัมน์ model<TAB>role
   และทีม llm-gateway ทดสอบแล้วพบว่า **ชื่อผิดใน chain ไม่มีใครบอก** — LiteLLM
   เงียบแล้วคืน error ของตัวหลักมาเฉย ๆ พิมพ์ชื่อผิดจึงมีอาการเหมือนไม่ได้ตั้ง
   fallback เลยทุกประการ จึงต้องตรวจกับ /model/info ตอนบันทึก ไม่ใช่รอ runtime
+
+  2026-09-03 เพิ่มการอ่าน "สัญญาณเตือน" จากแค็ตตาล็อกด้วย — เราดึง /model/info
+  มาทั้งก้อนอยู่แล้ว (554 KB · ฟรี ไม่ใช่ LLM call) แต่เดิมอ่านแค่ quota_pool กับ
+  answered_by ทั้งที่ในนั้นมี status · tags · stability · free_until · language_th_*
+
+  ต่างกันตรงที่ "ปัญหา" คือพังแล้ว ส่วน "เตือน" คือกำลังจะพัง — gateway รู้ก่อนเรา
+  เสมอเพราะเขา health-check ทุกวัน วันนี้เขาตั้ง oc/minimax-m3 เป็น deprecated
+  ตอน 03:58 แต่เราเพิ่งรู้ตอนยิงเอง
 """
 import json
 import sys
+from datetime import datetime, timezone
 
 
 def main() -> int:
@@ -37,7 +46,55 @@ def main() -> int:
         if role == "main" or role.startswith("fallback"):
             chain.append((model, role))
 
-    problems = []
+    problems, warnings = [], []
+
+    # --- สัญญาณเตือนจากแค็ตตาล็อก — ฟรี เพราะดึงมาแล้ว ---------------------
+    now = datetime.now(timezone.utc)
+
+    def parse(s):
+        try:
+            return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    for line in open(sys.argv[2]):
+        if not line.strip():
+            continue
+        model, _, role = line.rstrip("\n").partition("\t")
+        m = meta.get(model)
+        if not m:
+            continue
+
+        st = m.get("status")
+        # rate_limited ไม่ใช่คำเตือน — ตัวสำรองที่ดีคือตัวที่ว่างตอนตัวหลักตาย
+        if st == "dead":
+            warnings.append(f"{model} ({role}): gateway บันทึกว่า dead แล้ว")
+        elif st == "unknown":
+            warnings.append(f"{model} ({role}): status=unknown — gateway เองก็จำแนกไม่ออก ยิงเองก่อนเชื่อ")
+
+        tags = m.get("tags") or []
+        if "deprecated" in tags:
+            warnings.append(f"{model} ({role}): tags มี deprecated — ควรย้ายออกก่อนมันหาย")
+
+        stab = m.get("stability")
+        if stab not in (None, "stable"):
+            warnings.append(f"{model} ({role}): stability={stab} — มีวันหมดอายุในตัว อย่าวางเป็นตัวสำรองถาวร")
+
+        fu = parse(m.get("free_until"))
+        if fu:
+            days = (fu - now).days
+            if days < 0:
+                warnings.append(f"{model} ({role}): free_until ผ่านมาแล้ว {-days} วัน — อาจไม่ฟรีแล้ว")
+            elif days <= 30:
+                warnings.append(f"{model} ({role}): free_until อีก {days} วัน ({m['free_until']})")
+
+        for k, v in m.items():
+            if k.startswith("language_") and isinstance(v, str) and v.startswith("drift"):
+                warnings.append(f"{model} ({role}): {k}={v} — หลุดภาษาที่ขนาดบริบทนี้")
+
+        checked = parse(m.get("status_checked_at"))
+        if checked and (now - checked).days >= 3:
+            warnings.append(f"{model} ({role}): status ตรวจล่าสุด {(now - checked).days} วันก่อน — ข้อมูลค้าง")
 
     # 1. ชื่อที่ไม่มีใน gateway — อาการเหมือนไม่ได้ตั้ง fallback เลย
     for model, role in unknown:
@@ -64,12 +121,19 @@ def main() -> int:
     pools = {meta[m].get("quota_pool") or "?" for m, _ in chain}
     print(f"\nchain ยาว {len(chain)} ชั้น กระจายอยู่ {len(pools)} pool")
 
+    if warnings:
+        # เตือน = กำลังจะพัง ยังไม่ถือว่า chain ใช้ไม่ได้ จึงไม่ทำให้ exit 1
+        print("\nสัญญาณเตือนจากแค็ตตาล็อก (ยังใช้ได้ แต่ควรจัดการก่อนมันพัง):")
+        for w in dict.fromkeys(warnings):
+            print("  ! " + w)
+
     if problems:
         print("\nปัญหาที่เจอ:")
         for p in problems:
             print("  x " + p)
         return 1
-    print("ไม่มีชั้นไหนซ้ำ pool กัน และทุกชื่อมีอยู่จริงใน gateway")
+    if not warnings:
+        print("ไม่มีชั้นไหนซ้ำ pool กัน · ทุกชื่อมีอยู่จริง · ไม่มีสัญญาณเตือนในแค็ตตาล็อก")
     return 0
 
 
