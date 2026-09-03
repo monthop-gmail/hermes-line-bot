@@ -38,7 +38,7 @@ TMPL=config/config.yaml.tmpl
 ROLES=$(python3 - "$TMPL" <<'PY'
 import os, re, sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1]))
-seen, out = set(), []
+seen = {}   # model -> [role, ...] ตามลำดับที่เจอ
 
 def expand(v):
     """template ใช้ ${HERMES_MODEL} — ขยายจาก .env ที่ source เข้ามาแล้ว"""
@@ -46,14 +46,16 @@ def expand(v):
         return v
     return re.sub(r"\$\{(\w+)\}", lambda m: os.environ.get(m.group(1), m.group(0)), v)
 
+# ชื่อเดียวถูกอ้างได้หลายบทบาท — เก็บทุกบทบาทไว้ ไม่งั้นเวลามันพัง
+# จะเห็นแค่บทบาทแรก แล้วไม่รู้ว่า /turbo กับ /minimax ก็ชี้มาที่นี่ด้วย
+# (2026-09-03 oc/minimax-m3 ไม่ฟรีแล้ว รายงานบอกแค่ "fallback 3" ทั้งที่พัง 3 ที่)
 def add(model, role):
     model = expand(model)
     if not model or model.startswith("${"):
         if model:
-            out.append(f"{model}\t{role} (ขยายตัวแปรไม่ออก)")
+            seen.setdefault(model, []).append(role + " (ขยายตัวแปรไม่ออก)")
         return
-    if model not in seen:
-        seen.add(model); out.append(f"{model}\t{role}")
+    seen.setdefault(model, []).append(role)
 
 add((cfg.get("model") or {}).get("default"), "main")
 for i, f in enumerate(cfg.get("fallback_providers") or [], 1):
@@ -64,7 +66,8 @@ for name, v in (cfg.get("quick_commands") or {}).items():
     t = (v or {}).get("target") or ""
     if t.startswith("model "):
         add(t.split()[-1], f"/{name}")
-print("\n".join(out))
+for model, roles in seen.items():
+    print(f"{model}\t{' · '.join(roles)}")
 PY
 ) || { echo "${RED}✗ อ่าน $TMPL ไม่ได้ — เป็น YAML ที่ parse ได้ไหม${RESET}" >&2; exit 2; }
 
@@ -107,6 +110,7 @@ while IFS=$'\t' read -r model role; do
     quota)  mark="${YELLOW}◐ โควตาหมด${RESET}" ;;
     slow)   mark="${YELLOW}◐ ช้าเกิน${TIMEOUT}s${RESET}" ;;
     dead)   mark="${RED}✗ ตายถาวร${RESET}" ;;
+    paid)   mark="${RED}✗ ไม่ฟรีแล้ว${RESET}" ;;
     wrong)  mark="${RED}✗ วัดผิด${RESET}" ;;
     *)      mark="${RED}✗ พัง${RESET}" ;;
   esac

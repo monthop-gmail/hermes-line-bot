@@ -59,16 +59,19 @@ custom_providers:
       # เวลาคือ "ต่อ turn จริงใน Hermes" ไม่ใช่ latency ของ call เดี่ยว
       - mi/ministral-14b       # Mistral    18s   ← main · 1B token/เดือน
       - mi/devstral-medium     # Mistral    51s   ใกล้เพดาน reply token ของ LINE (60s)
-      - zen/hy3                # OpenCode Zen · reasoning · ไม่ต้องมี key · rpm-only
-                               # แทน or/ox-alpha ที่ตายถาวร 2026-08-27
+      - zen/laguna-s-2.1       # OpenCode Zen · reasoning · ไม่ต้องมี key · rpm-only
+                               # แทน zen/hy3 ที่ตายถาวร 2026-09-03
       - cb/gpt-oss-120b        # Cerebras   เร็วสุด แต่ verified_max_prompt แค่ 13,655
                                #            และค้างเงียบที่ ~32K — เลือกเองได้ แต่ไม่อยู่ใน fallback
-      - oc/minimax-m3          # Ollama Cloud 2.3s — ⚠️ โควตา "รายสัปดาห์" หมดทั้งตระกูล
       - nim/minimax-m3         # NVIDIA NIM  40 RPM
       - mi/large               # Mistral    90-180s ช้ามาก เก็บไว้เป็นตาข่ายท้าย ๆ
       # ตัดออก: oc/gpt-oss-120b (หลุดไปตอบจีน) · cf/llama-4-scout (ตอบอังกฤษ 1/3)
       #         mi/magistral-medium (146-227s/turn ช้าเกินใช้กับแชท)
       #         or/ox-alpha (ตายถาวร 2026-08-27 — จบช่วง stealth testing ของ OpenRouter)
+      #         zen/hy3 (ตายถาวร 2026-09-03 — OpenCode Zen ปิดชื่อ hy3-free)
+      #         oc/minimax-m3 (ไม่ฟรีแล้ว 2026-09-03 — Ollama ย้ายไปแพ็กเกจเสียเงิน)
+      # ทดสอบแล้วแต่ไม่เอา: zen/nemotron-3-ultra — ไทย 2/3 เพราะสะดุด burst limit
+      #   ของ opencode-zen แล้ว Hermes fallback ไปตัวอื่นแทน 1 รอบ
       # ทดสอบแล้วแต่ไม่เอา: l7/llama-3.1-8b — ไทย 3/3 เร็ว 361ms ไม่ต้องมี key
       #   แต่ตอบผิดแบบมั่นใจ ("ทะเลสีแดง") ซึ่งด้วยเหตุผลเดียวกับที่เราไม่ยอมให้
       #   fallback ไปตัวที่ตอบผิดภาษา — คำตอบผิดที่ผู้ใช้เชื่อ แย่กว่า error
@@ -85,9 +88,8 @@ model:
 # เรียงให้ "ข้าม provider" ทุกชั้น และเอาตัวที่เร็วกว่าไว้ก่อน
 # ⚠️ อย่าเรียง mi/* ต่อกันเป็นชั้นแรก — โควตาผูกกับ provider ตายพร้อมกัน
 fallback_providers:
-  - { provider: "custom:litellm", model: "zen/hy3" }             # OpenCode Zen · max 127,968 · ไทย 3/3
+  - { provider: "custom:litellm", model: "zen/laguna-s-2.1" }    # OpenCode Zen · max 127,914 · ไทย 3/3
   - { provider: "custom:litellm", model: "mi/devstral-medium" }  # Mistral     51s  · max 127,972
-  - { provider: "custom:litellm", model: "oc/minimax-m3" }       # Ollama Cloud (กลับมาเมื่อโควตารีเซ็ต)
   - { provider: "custom:litellm", model: "nim/minimax-m3" }      # NVIDIA NIM
   # ⚠️ ถอด cb/gpt-oss-120b ออกจาก chain — verified_max_prompt แค่ 13,655 ซึ่งต่ำกว่า
   #    context ที่ hermes ใช้จริง (สูงสุด 43,330) และมันพังแบบ "ค้างเงียบ" ไม่คืน error
@@ -237,16 +239,16 @@ platform_toolsets:
 quick_commands:
   turbo:
     type: alias
-    target: model oc/minimax-m3          # 2.6s — ตัวเร็วสุดที่ตอบไทยนิ่ง
-    description: สลับไปโมเดลเร็ว (oc/minimax-m3)
+    target: model mi/ministral-3b        # 373ms — ตัวเร็วสุดที่ยืนยันแล้ว
+    description: สลับไปโมเดลเร็ว (mi/ministral-3b)
   minimax:
     type: alias
-    target: model oc/minimax-m3          # ชื่อที่อ่านแล้วรู้เลยว่าโมเดลอะไร
-    description: สลับไป minimax (Ollama Cloud)
+    target: model nim/minimax-m3         # โมเดลเดียวกับ /nim — ชื่อที่คนจำได้
+    description: สลับไป minimax (NVIDIA NIM)
   big:
     type: alias
-    target: model zen/hy3                # verified_max_prompt 127,968 · reasoning
-    description: สลับไปโมเดล context ใหญ่ (zen/hy3)
+    target: model zen/laguna-s-2.1       # verified_max_prompt 127,914 · reasoning
+    description: สลับไปโมเดล context ใหญ่ (zen/laguna-s-2.1)
   nim:
     type: alias
     target: model nim/minimax-m3         # minimax ตัวเดียวกัน คนละเจ้า

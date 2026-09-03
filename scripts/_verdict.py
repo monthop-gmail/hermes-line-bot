@@ -44,8 +44,16 @@ def main() -> None:
 
     msg = str((d.get("error") or {}).get("message") or d.get("detail") or d)
     low = msg.lower()
-    if code == "404" or "testing period" in low or "no longer" in low:
+    # ⚠️ อย่าดูแต่ HTTP code — provider ใช้ code ไม่ตรงความหมายบ่อยมาก
+    #    OpenCode Zen คืน 401 พร้อมข้อความ "Model hy3-free is not supported"
+    #    ซึ่งคือ "ชื่อนี้ไม่มีแล้ว" ไม่ใช่ปัญหา auth (2026-09-03)
+    if (code == "404" or "not supported" in low or "testing period" in low
+            or "no longer" in low or "end of life" in low):
         kind = "dead"
+    # ไม่ฟรีแล้ว = ยังมีชีวิตแต่เราใช้ไม่ได้ — คนละเรื่องกับตายและกับโควตาหมด
+    # oc/minimax-m3 ย้ายไปแพ็กเกจเสียเงิน 2026-09-03 คืน 402
+    elif code == "402" or "subscription" in low or "upgrade for" in low:
+        kind = "paid"
     elif code == "429" or "limit" in low or "quota" in low or "ratelimit" in low:
         kind = "quota"
     else:
